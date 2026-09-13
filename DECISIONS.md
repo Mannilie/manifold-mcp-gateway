@@ -469,3 +469,22 @@ Loose ends folded into Phase 6 (Manny):
 - Incremental vacuum only, never a full VACUUM.
 - The dashboard shows the row count, the oldest row, and a "pruned N rows by cap" notice when the cap fires, so abuse can be told from ageing.
 - Retention validated to 1 to 365 days, cap to 10,000 to 1,000,000 rows.
+
+## 2026-09-14: Phase 6 gate 2, backup and restore
+
+| Option | What it is | Trade-off |
+|---|---|---|
+| A. Manual download and a runbook | Download button, restore by replacing the file with the container stopped | Only when remembered; shell restore |
+| B. Scheduled snapshots, validated restore | Daily online-backup snapshots under `/data/backups`, last 14 kept, download any, upload with validation and swap on boot | About 200 lines and a restore path that must be tested carefully |
+| C. External appdata backup | Unraid's appdata backup plugin | Live-file copies can be inconsistent; no in-app restore |
+
+**Choice:** B, with C running alongside on the snapshot files.
+
+**Conditions (Manny):**
+
+- Restore is two-step: upload and validate, then a separate explicit Confirm restore that shows what changes (snapshot date, schema version, toolset and credential counts, live versus snapshot). No single-click restore.
+- Before swapping, the live database is copied to `manifold.db.pre-restore-<timestamp>`, with the same retention as the pre-migration copies, so a bad restore is itself reversible.
+- Snapshot on demand as well as daily: a Snapshot now button, and an automatic snapshot before every migration and before every restore, replacing the pre-migration copy mechanism so there is one backup path.
+- The key rotation command takes a snapshot first and refuses to run if the snapshot fails.
+- Live test on the real NAS as part of the Phase 6 criterion: snapshot, delete a toolset, restore, toolset is back.
+- `/data/backups` is excluded from the audit prune and from any size cap other than the 14-file limit.
