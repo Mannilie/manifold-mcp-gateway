@@ -141,6 +141,19 @@ query ManifoldHealth {{
 }}
 """
 
+# One tiny query per root, used to name the roots a key cannot read when the combined
+# health query is refused with a bare "Forbidden resource".
+ROOT_PROBES = {
+    "info": "query { info { os { hostname } } }",
+    "metrics": "query { metrics { cpu { percentTotal } } }",
+    "array": "query { array { state } }",
+    "vars": "query { vars { mdState } }",
+    "vms": "query { vms { domains { id } } }",
+    "shares": "query { shares { id } }",
+    "notifications": "query { notifications { overview { unread { total } } } }",
+    "upsDevices": "query { upsDevices { id } }",
+}
+
 # Fields verified by introspection because executing them has side effects.
 FIELDS_USED = {
     "Disk": [

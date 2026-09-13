@@ -271,3 +271,11 @@ async def test_request_shape_matches_curl(monkeypatch, caplog):
     assert logged and logged[0].url == f"{URL}/graphql" and "x-api-key" in logged[0].header_names
     assert API_KEY not in str(logged[0].__dict__)
     await http.aclose()
+
+
+async def test_forbidden_health_names_the_roots(rig):
+    rig.forbidden.update({"metrics", "upsDevices"})
+    result = await unraid_module.healthcheck(config(), creds())
+    assert result.status == "degraded"
+    assert "cannot read: metrics, upsDevices" in result.detail
+    assert "array" not in result.detail.split("cannot read:")[1].split(".")[0]
