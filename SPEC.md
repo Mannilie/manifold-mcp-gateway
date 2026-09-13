@@ -243,11 +243,11 @@ All tools in 10.1, both auth kinds, contract tests, integration test against a r
 Done when: Manny edits a real sheet from claude.ai using both a service account and an OAuth credential.
 
 **Phase 5: Proxy toolsets.**
-`unraid` and `n8n` configured via UI, tool discovery, allow/deny, prefixing, upstream health, graceful degradation.
+`n8n` proxy live via the SDK client with snapshot, allow/deny, prefixing, upstream health and graceful degradation; `unraid` as a native toolset; `ping-b` placeholder removed.
 Done when: Manny disconnects the standalone unraid-mcp connector in claude.ai and loses no capability.
 
 **Phase 6: Hardening.**
-Rate limits, audit retention, secret rotation runbook, backup and restore doc, `ping-b` placeholder removed.
+Rate limits, audit retention, secret rotation runbook, backup and restore doc.
 Done when: runbooks written and a restore from backup tested.
 
 ## 15. Decision gates

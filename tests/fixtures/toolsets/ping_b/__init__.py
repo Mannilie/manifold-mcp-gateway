@@ -1,8 +1,8 @@
-"""The `ping-b` placeholder toolset.
+"""The `ping-b` test toolset. Test-only since Phase 5.
 
-Exists only to prove two connectors are served from one image (SPEC.md Phase 1).
-Removed in Phase 6. The directory is `ping_b` because Python packages cannot contain
-hyphens; the served key comes from MANIFEST.key.
+It proved two connectors from one image in Phase 1 and now gives the integration suite a
+second harmless native toolset. The directory is `ping_b` because Python packages cannot
+contain hyphens; the served key comes from MANIFEST.key.
 """
 
 from __future__ import annotations

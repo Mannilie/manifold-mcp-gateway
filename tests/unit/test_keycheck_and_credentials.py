@@ -65,15 +65,18 @@ async def test_key_check_survives_reopen(tmp_path):
 
 async def test_boot_fails_on_wrong_key_end_to_end(tmp_path, env, monkeypatch):
     """The whole app, not just the helper: create_app boots once, then refuses a new key."""
+    import manifold.toolsets
+    import tests.fixtures.toolsets
     from manifold.app import create_app
     from manifold.config.settings import Settings
 
+    packages = (manifold.toolsets, tests.fixtures.toolsets)
     env["MANIFOLD_DATA_DIR"] = str(tmp_path)
-    app = create_app(Settings.from_env(env))
+    app = create_app(Settings.from_env(env), toolset_packages=packages)
     async with app.router.lifespan_context(app):
         pass
     env["MANIFOLD_MASTER_KEY"] = base64.b64encode(os.urandom(32)).decode()
-    app = create_app(Settings.from_env(env))
+    app = create_app(Settings.from_env(env), toolset_packages=packages)
     with pytest.raises(MasterKeyError, match="Restore the original key"):
         async with app.router.lifespan_context(app):
             pass

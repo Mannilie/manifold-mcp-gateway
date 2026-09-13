@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+import manifold.toolsets
+import tests.fixtures.toolsets
 from manifold.crypto.keys import INFO_CREDENTIALS, derive_key
 from manifold.gateway.registry import discover_native_toolsets
 from manifold.store.credentials import CredentialsRepo
@@ -25,7 +27,10 @@ async def db(tmp_path):
 @pytest.fixture
 async def repo(db) -> ToolsetsRepo:
     r = ToolsetsRepo(db)
-    await r.sync_native(m.MANIFEST for m in discover_native_toolsets().values())
+    await r.sync_native(
+        m.MANIFEST
+        for m in discover_native_toolsets(manifold.toolsets, tests.fixtures.toolsets).values()
+    )
     return r
 
 
@@ -38,7 +43,10 @@ async def test_sync_registers_disabled_except_manifold(repo):
 
 async def test_sync_is_idempotent_and_never_disables_manifold(repo, db):
     await db.conn.execute("UPDATE toolsets SET enabled = 0 WHERE key = 'manifold'")
-    added = await repo.sync_native(m.MANIFEST for m in discover_native_toolsets().values())
+    added = await repo.sync_native(
+        m.MANIFEST
+        for m in discover_native_toolsets(manifold.toolsets, tests.fixtures.toolsets).values()
+    )
     assert added == []
     assert (await repo.get("manifold")).enabled is True
 

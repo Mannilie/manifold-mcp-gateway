@@ -34,6 +34,8 @@ def settings(env) -> Settings:
 
 async def _seed(data_dir) -> None:
     """New native toolsets start disabled; the integration suite wants ping-b on."""
+    import manifold.toolsets
+    import tests.fixtures.toolsets
     from manifold.gateway.registry import discover_native_toolsets
     from manifold.store.db import Database
     from manifold.store.toolsets import ToolsetsRepo
@@ -43,7 +45,8 @@ async def _seed(data_dir) -> None:
     try:
         await db.migrate()
         repo = ToolsetsRepo(db)
-        await repo.sync_native(m.MANIFEST for m in discover_native_toolsets().values())
+        modules = discover_native_toolsets(manifold.toolsets, tests.fixtures.toolsets)
+        await repo.sync_native(m.MANIFEST for m in modules.values())
         await repo.set_enabled("ping-b", True)
     finally:
         await db.close()
@@ -67,10 +70,18 @@ def live_server(tmp_path_factory) -> Iterator[str]:
     os.environ["MANIFOLD_DATA_DIR"] = str(data_dir)
     os.environ.setdefault("MANIFOLD_LOG_LEVEL", "warning")
     asyncio.run(_seed(data_dir))
+    import manifold.toolsets
+    import tests.fixtures.toolsets
     from manifold.app import create_app
 
     config = uvicorn.Config(
-        create_app(reload_poll_seconds=0.2), host="127.0.0.1", port=port, log_config=None
+        create_app(
+            reload_poll_seconds=0.2,
+            toolset_packages=(manifold.toolsets, tests.fixtures.toolsets),
+        ),
+        host="127.0.0.1",
+        port=port,
+        log_config=None,
     )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)

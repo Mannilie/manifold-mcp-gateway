@@ -69,28 +69,30 @@ class NativeToolsetModule(Protocol):
     ) -> HealthResult: ...
 
 
-def discover_native_toolsets(package: ModuleType = manifold.toolsets) -> dict[str, ModuleType]:
-    """Import every package under `manifold.toolsets` that exposes the toolset contract.
+def discover_native_toolsets(*packages: ModuleType) -> dict[str, ModuleType]:
+    """Import every package under the given packages (default `manifold.toolsets`) that
+    exposes the toolset contract.
 
     Keyed by `MANIFEST.key`, never by directory name. Raises on a malformed toolset rather
     than skipping it, so a broken toolset fails the boot loudly.
     """
     found: dict[str, ModuleType] = {}
-    for info in pkgutil.iter_modules(package.__path__):
-        module = importlib.import_module(f"{package.__name__}.{info.name}")
-        for attr in ("MANIFEST", "build", "healthcheck"):
-            if not hasattr(module, attr):
-                raise TypeError(f"Toolset module {module.__name__} is missing {attr}")
-        manifest = module.MANIFEST
-        if not isinstance(manifest, ToolsetManifest):
-            raise TypeError(f"{module.__name__}.MANIFEST is not a ToolsetManifest")
-        if manifest.kind != "native":
-            raise TypeError(
-                f"{module.__name__} declares kind={manifest.kind!r}; code toolsets are native"
-            )
-        if manifest.key in found:
-            raise ValueError(f"Duplicate toolset key {manifest.key!r}")
-        found[manifest.key] = module
+    for package in packages or (manifold.toolsets,):
+        for info in pkgutil.iter_modules(package.__path__):
+            module = importlib.import_module(f"{package.__name__}.{info.name}")
+            for attr in ("MANIFEST", "build", "healthcheck"):
+                if not hasattr(module, attr):
+                    raise TypeError(f"Toolset module {module.__name__} is missing {attr}")
+            manifest = module.MANIFEST
+            if not isinstance(manifest, ToolsetManifest):
+                raise TypeError(f"{module.__name__}.MANIFEST is not a ToolsetManifest")
+            if manifest.kind != "native":
+                raise TypeError(
+                    f"{module.__name__} declares kind={manifest.kind!r}; code toolsets are native"
+                )
+            if manifest.key in found:
+                raise ValueError(f"Duplicate toolset key {manifest.key!r}")
+            found[manifest.key] = module
     return found
 
 

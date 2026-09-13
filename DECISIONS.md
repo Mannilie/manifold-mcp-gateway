@@ -417,3 +417,11 @@ Upstreams with their own OAuth (House Hunt): supported. A proxy row holds an `oa
 - Upstream errors pass through with the upstream's message intact.
 - The audit log records the upstream tool name and the prefixed name both.
 - The oauth2 runtime hook is built now; register-with-upstream is deferred.
+
+## 2026-09-13: Phase 5 build notes
+
+- `ping-b` is gone from the image. It lives on as `tests/fixtures/toolsets/ping_b`, a test-only package the integration suite passes to `create_app`, because those tests need a second harmless native toolset. Its row on the NAS is a native toolset with no code and is skipped with a log line until deleted from the UI.
+- Proxy re-snapshot happens inside `build()`, which changes the row's deny list, so the registry re-hashes the row after a successful build. Without that, the next edit to the same list looked like no change.
+- A proxy health probe that finds the upstream tool list drifted marks the runtime for rebuild, so a plain reload re-snapshots even though nothing in the config changed.
+- A proxy call that fails on a session that looked alive drops the session and reconnects, rather than trusting it until the next restart.
+- The Unraid API has no mover mutations, only `vars.shareMoverActive` and the schedule, so `mover_status` is read-only and `mover_control` does not exist. Array start and stop exist in the API but are not exposed as tools.

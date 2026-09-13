@@ -8,6 +8,8 @@ import json
 import httpx2
 import pytest
 
+import manifold.toolsets
+import tests.fixtures.toolsets
 from manifold.config.settings import Settings
 from manifold.gateway import proxy as proxy_mod
 from manifold.gateway.manifest import Credentials
@@ -20,6 +22,8 @@ from manifold.gateway.proxy import (
 )
 from tests.fake_upstream import API_KEY, make_upstream, running_upstream
 from tests.oauth_helpers import ACCESS_HEADER, obtain_tokens
+
+PACKAGES = (manifold.toolsets, tests.fixtures.toolsets)
 
 MUT = {**ACCESS_HEADER, "X-Manifold-Request": "1"}
 UP = "http://upstream.test/mcp"
@@ -157,7 +161,7 @@ async def app_rig(env, tmp_path, monkeypatch):
 
     env["MANIFOLD_DATA_DIR"] = str(tmp_path)
     env["MANIFOLD_BASE_URL"] = "http://testserver"
-    app = create_app(Settings.from_env(env), reload_poll_seconds=100)
+    app = create_app(Settings.from_env(env), reload_poll_seconds=100, toolset_packages=PACKAGES)
     async with app.router.lifespan_context(app):
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as http:

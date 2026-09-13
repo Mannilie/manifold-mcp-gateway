@@ -8,10 +8,14 @@ import time
 import httpx2
 import pytest
 
+import manifold.toolsets
+import tests.fixtures.toolsets
 from manifold.auth.upstream import ReconnectRequired, UpstreamOAuth, UpstreamUnavailable
 from manifold.config.settings import Settings
 from tests.fake_oauth_provider import FakeProvider, code_from_redirect
 from tests.oauth_helpers import ACCESS_HEADER
+
+PACKAGES = (manifold.toolsets, tests.fixtures.toolsets)
 
 FAKE_BASE = "https://fake-provider.test"
 
@@ -24,7 +28,12 @@ async def rig(env, tmp_path):
     provider_http = httpx2.AsyncClient(transport=httpx2.ASGITransport(app=provider.app))
     env["MANIFOLD_DATA_DIR"] = str(tmp_path)
     env["MANIFOLD_BASE_URL"] = "http://testserver"
-    app = create_app(Settings.from_env(env), reload_poll_seconds=100, upstream_http=provider_http)
+    app = create_app(
+        Settings.from_env(env),
+        reload_poll_seconds=100,
+        upstream_http=provider_http,
+        toolset_packages=PACKAGES,
+    )
     async with app.router.lifespan_context(app):
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as http:

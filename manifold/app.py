@@ -6,6 +6,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import ModuleType
 
 import httpx2
 from fastapi import FastAPI, HTTPException
@@ -66,12 +67,13 @@ def create_app(
     reload_poll_seconds: float = POLL_SECONDS,
     upstream_http: httpx2.AsyncClient | None = None,
     ui_dir: Path | None = None,
+    toolset_packages: tuple[ModuleType, ...] = (),
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
     db = Database(settings.data_dir)
     credentials_key = derive_key(settings.master_key, INFO_CREDENTIALS)
-    modules = discover_native_toolsets()
+    modules = discover_native_toolsets(*toolset_packages)
     toolsets_repo = ToolsetsRepo(db)
     credentials_repo = CredentialsRepo(db, credentials_key)
     settings_repo = GatewaySettingsRepo(db)

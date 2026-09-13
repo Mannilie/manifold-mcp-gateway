@@ -7,6 +7,8 @@ import json
 import httpx2
 import pytest
 
+import manifold.toolsets
+import tests.fixtures.toolsets
 from manifold.config.settings import Settings
 from tests.oauth_helpers import ACCESS_HEADER
 
@@ -20,6 +22,8 @@ SA_JSON = json.dumps(
     }
 )
 
+PACKAGES = (manifold.toolsets, tests.fixtures.toolsets)
+
 
 @pytest.fixture
 async def api(env, tmp_path):
@@ -27,7 +31,7 @@ async def api(env, tmp_path):
 
     env["MANIFOLD_DATA_DIR"] = str(tmp_path)
     env["MANIFOLD_BASE_URL"] = "https://mcp.example.test"
-    app = create_app(Settings.from_env(env), reload_poll_seconds=100)
+    app = create_app(Settings.from_env(env), reload_poll_seconds=100, toolset_packages=PACKAGES)
     async with app.router.lifespan_context(app):
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(

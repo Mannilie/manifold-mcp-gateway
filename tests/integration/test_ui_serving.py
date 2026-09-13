@@ -5,7 +5,11 @@ from __future__ import annotations
 import httpx2
 import pytest
 
+import manifold.toolsets
+import tests.fixtures.toolsets
 from manifold.config.settings import Settings
+
+PACKAGES = (manifold.toolsets, tests.fixtures.toolsets)
 
 
 @pytest.fixture
@@ -18,7 +22,9 @@ async def ui(env, tmp_path):
     (dist / "_astro" / "app.abc123.js").write_text("console.log('hi')")
     (dist / "favicon.svg").write_text("<svg/>")
     env["MANIFOLD_DATA_DIR"] = str(tmp_path / "data")
-    app = create_app(Settings.from_env(env), reload_poll_seconds=100, ui_dir=dist)
+    app = create_app(
+        Settings.from_env(env), reload_poll_seconds=100, ui_dir=dist, toolset_packages=PACKAGES
+    )
     async with app.router.lifespan_context(app):
         transport = httpx2.ASGITransport(app=app)
         async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as http:

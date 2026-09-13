@@ -46,7 +46,7 @@ To work on the UI locally you need a request with a Cloudflare Access identity. 
 New native toolsets are registered disabled. Enable them from the dashboard, or in an emergency from the database on the NAS:
 
 ```
-docker exec manifold python -c "import sqlite3; c=sqlite3.connect('/data/manifold.db'); c.execute(\"UPDATE toolsets SET enabled=1 WHERE key='ping-b'\"); c.commit()"
+docker exec manifold python -c "import sqlite3; c=sqlite3.connect('/data/manifold.db'); c.execute(\"UPDATE toolsets SET enabled=1 WHERE key='sheets'\"); c.commit()"
 ```
 
 ## Live Google test
