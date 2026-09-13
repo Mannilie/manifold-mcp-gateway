@@ -425,3 +425,16 @@ Upstreams with their own OAuth (House Hunt): supported. A proxy row holds an `oa
 - A proxy health probe that finds the upstream tool list drifted marks the runtime for rebuild, so a plain reload re-snapshots even though nothing in the config changed.
 - A proxy call that fails on a session that looked alive drops the session and reconnects, rather than trusting it until the next restart.
 - The Unraid API has no mover mutations, only `vars.shareMoverActive` and the schedule, so `mover_status` is read-only and `mover_control` does not exist. Array start and stop exist in the API but are not exposed as tools.
+
+## 2026-09-13: Unraid API key permissions
+
+The key the `unraid` toolset uses, created under Settings, Management Access, API Keys with a custom permission set rather than a role:
+
+| Resource | Action | Why |
+|---|---|---|
+| INFO, ARRAY, DISK, VARS, SHARE, VMS, NOTIFICATIONS | READ_ANY | every read tool and the healthcheck |
+| ARRAY | UPDATE_ANY | `parity_check` |
+| VMS | UPDATE_ANY | `vm_control` |
+| NOTIFICATIONS | UPDATE_ANY | `archive_notification` |
+
+`upsDevices` is not its own resource in the schema; if `ups_status` reports a permission error, the message names the resource to add. No DOCKER, no CONFIG, no OS, no API_KEY. The healthcheck touches every read field in one query and introspects the mutation and SMART types, so a missing permission or a renamed field shows on the dashboard with its name.

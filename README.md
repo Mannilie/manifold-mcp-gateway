@@ -57,6 +57,14 @@ docker exec manifold python -c "import sqlite3; c=sqlite3.connect('/data/manifol
 MANIFOLD_TEST_SA_JSON=/path/to/sa.json MANIFOLD_TEST_SPREADSHEET_ID=1abc... uv run pytest tests/live -q
 ```
 
+## Toolsets in the image
+
+- `manifold`: gateway self-management, always on.
+- `sheets`: Google Sheets by spreadsheet ID, service account or Google OAuth.
+- `unraid`: the NAS through the Unraid 7.2 API with an api_key credential.
+
+Proxy toolsets, such as `n8n`, are rows in the config store created from the admin UI.
+
 ## Adding a native toolset
 
 Create `manifold/toolsets/<name>/__init__.py` exposing `MANIFEST`, `build()` and `healthcheck()`. See `manifold/toolsets/manifold` for the shape. The contract tests in `tests/contract` pick it up automatically and it is served at `/<MANIFEST.key>` after a restart.
