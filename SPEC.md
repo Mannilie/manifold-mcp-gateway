@@ -118,7 +118,7 @@ AuthKind = Literal["none", "api_key", "basic", "bearer", "service_account", "oau
 | service_account | JSON upload; UI displays client_email after upload | full JSON |
 | oauth2 | client ID, masked client secret, scopes, provider preset, Connect button | client creds, refresh token, access token + expiry |
 
-A toolset declares which kinds it supports. The UI only offers those. Switching kinds on an existing toolset is allowed and clears the previous credential.
+Credentials are first-class objects with a name, shared between toolsets. A toolset declares which kinds it supports and the UI offers a picker of existing credentials of those kinds, plus "Add new". One Google credential named "Google (Manny)" can serve drive, docs and sheets. Deleting a credential that is in use is refused, and the refusal lists the toolsets using it. Changing a toolset to a credential of a different kind is allowed.
 
 OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URLs). The consent flow runs in the browser from the admin UI, redirects to `/oauth/callback`, and stores the refresh token. Token refresh is automatic and transparent to tools. Failed refresh sets the toolset health to degraded and surfaces in the UI.
 
@@ -126,16 +126,19 @@ OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URL
 
 SQLite at `$MANIFOLD_DATA_DIR/manifold.db`, which is `/data/manifold.db` inside the container. Tables (indicative):
 
-- `toolsets`: key, display_name, kind, enabled, settings_json, created_at, updated_at
+- `toolsets`: key, display_name, kind, enabled, credential_id (nullable FK), settings_json, created_at, updated_at
 - `oauth_clients`: client_id, metadata_json, created_at (dynamic registrations from claude.ai)
 - `oauth_tokens`: token_hash, kind (access, refresh, code), client_id, subject, resource, scopes_json, expires_at, partner_hash
 - `gateway_settings`: key, value_json (log level, audit retention days, and other runtime settings from the Settings page)
-- `credentials`: toolset_key, auth_kind, ciphertext, nonce, updated_at
+- `credentials`: id, name, auth_kind, scheme, nonce, ciphertext, created_at, updated_at
+- `key_check`: one row encrypted under the derived credentials key, verified at boot
 - `proxy_upstreams`: toolset_key, upstream_url, prefix, allow_json, deny_json
 - `audit_log`: id, ts, toolset_key, tool_name, args_hash, duration_ms, ok, error
 - `oauth_state`: state, toolset_key, created_at (short-lived)
 
-Encryption: all credential ciphertext encrypted with a key derived from the single env var `MANIFOLD_MASTER_KEY`. Library choice is a decision gate (candidates: `cryptography` Fernet, libsodium via `pynacl`). Loss of the master key means loss of all credentials; the UI must display this warning on first run.
+Encryption: AES-256-GCM with a key derived from `MANIFOLD_MASTER_KEY` by HKDF-SHA256 per purpose (DECISIONS.md, Phase 2 gate 1). Associated data binds each ciphertext to its scheme, credential id and auth kind. Loss of the master key means loss of all credentials; the UI must display this warning on first run.
+
+Migrations: numbered SQL files applied at boot, tracked by `PRAGMA user_version`. The database file is copied aside before each migration and the last five copies are kept.
 
 Export: the UI offers "Export config as YAML" (credentials redacted) for backup and diffing. Import is out of scope for v1.
 

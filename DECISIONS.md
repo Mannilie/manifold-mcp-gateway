@@ -136,7 +136,24 @@ Key derivation: raw master key used directly, or HKDF-SHA256 per purpose. HKDF c
 
 **Conditions (Manny):**
 
-- Associated data is `scheme || toolset_key || auth_kind`, so editing the `scheme` column cannot downgrade a ciphertext to an older scheme.
+- Associated data is `scheme || credential_id || auth_kind`, so editing the `scheme` column cannot downgrade a ciphertext to an older scheme, and a ciphertext moved to another credential row fails. (Amended at gate 2, same day: credentials became a first-class table keyed by their own id and shared between toolsets, so the row identity in the associated data is the credential id, not a toolset key.)
 - HKDF `info` strings are constants in one module and listed here. Initial list: `manifold/credentials/v1` (credential ciphertext), `manifold/key-check/v1` (the boot-time key check). Any new purpose is appended to this list in the same commit that adds it.
 - The `key_check` row is encrypted under the derived credentials key, not the raw master key, so it proves derivation is stable across versions as well as proving the master key is right.
-- Tests: ciphertext moved to another toolset row fails to decrypt; ciphertext with the `scheme` column edited fails; wrong master key fails at boot with the clear message.
+- Tests: ciphertext moved to another credential row fails to decrypt; ciphertext with the `scheme` column edited fails; wrong master key fails at boot with the clear message.
+
+## 2026-09-13: Phase 2 gate 2, schema and migrations
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Numbered SQL files, `PRAGMA user_version` | `store/migrations/NNNN_name.sql` applied in order at boot, each in its own transaction, database file copied aside first | No dependency, reviewable SQL diffs, destructive changes by hand, the copy is the Phase 6 backup primitive | Low |
+| B. Alembic with SQLAlchemy Core | Migration tool with autogenerate plus a query builder | Two large dependencies and a second table description for a schema this size | Medium |
+| C. Single idempotent `schema.sql` | `CREATE TABLE IF NOT EXISTS` and guarded `ALTER`s | Smallest, but no version record and no clean path for a non-additive change | Low until the first non-additive change |
+
+**Choice:** A.
+
+**Schema changes (Manny):**
+
+- `credentials` is a first-class table keyed by its own id: id, name, auth_kind, scheme, nonce, ciphertext, created_at, updated_at. `toolsets` gains a nullable `credential_id` foreign key. Reason: drive, docs and sheets will share one Google credential, and the UI shows "Google (Manny)" as a pickable credential rather than three copies. Deleting a credential that is in use is refused with the list of toolsets using it.
+- Authorization codes live in `oauth_tokens` with kind `code`.
+- `oauth_clients` has `created_at`. `oauth_tokens` has an index on `expires_at` so expiry sweeps are cheap.
+- Pre-migration copies are kept to the last 5 (`manifold.db.pre-<version>-<timestamp>`), older ones deleted after a successful migration, so a year of deploys cannot fill appdata.
