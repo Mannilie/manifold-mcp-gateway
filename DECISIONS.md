@@ -372,3 +372,8 @@ Gates in order: client library, tool surface (with `format_range`, `set_column_w
 ## 2026-09-13: Phase 4 complete
 
 Both halves of the criterion done from claude.ai against Manny's throwaway spreadsheet: a row appended and read back with the service account, then the credential switched to the Google OAuth credential and a second row appended and read back. Formulas evaluated under USER_ENTERED, ISO dates parsed as dates, formula render returned the source. The gate 3 manual refresh check runs itself the first time the Sheets toolset is used more than an hour after the connect; the log line is `access token refreshed`.
+
+## 2026-09-13: Phase 5 scope additions (Manny)
+
+- Remove `ping-b`: the toolset package, its row, and the Cloudflare bypass note. Manny deletes the claude.ai connector. Sheets and n8n are the real second and third toolsets.
+- Gate 2 must cover how the proxy would handle an upstream that requires its own OAuth (House Hunt does), even though it is not being proxied yet: supported by the design, or ruled out.
