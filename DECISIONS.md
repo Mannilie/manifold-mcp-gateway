@@ -396,3 +396,24 @@ Tool list: `system_overview`, `array_status` (parity array and pools, including 
 - Mutations take `confirm=true` and refuse without it; the docstring says the tool does nothing unless confirm is true.
 - Credential is `api_key` with header `x-api-key`, created with read on everything and write on array, VMs, notifications and mover only. Exact permission names to be listed when the toolset is built.
 - Same shared-client pattern as Google: `manifold/unraid` owns the URL, header and error mapping. Tools never build a request.
+
+## 2026-09-13: Phase 5 gate 2, proxy implementation
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. SDK client, re-exported tools | One MCP client session per proxy runtime; allowed upstream tools registered locally as passthroughs with prefix | Manifold speaks MCP on both sides; snapshot at build; about 200 lines plus reconnect | Low |
+| B. Raw HTTP forwarding | Forward JSON-RPC bodies, rewrite names and filter | Owns session IDs, SSE streaming, version negotiation, body rewriting | Medium |
+| C. Hybrid | SDK for discovery, raw for calls | Both sets of problems | Medium |
+
+**Choice:** A.
+
+Upstreams with their own OAuth (House Hunt): supported. A proxy row holds an `oauth2` credential with the generic preset; the connect runs through `/oauth/callback`; at runtime the proxy asks the credential for an access token per request via the Phase 3 token manager. Missing piece, deferred: a "Register with upstream" action for dynamic client registration.
+
+**Conditions (Manny):**
+
+- The upstream tool list snapshot is stored with the proxy row. Healthcheck diffs live against stored and reports "upstream added N tools / removed M" as degraded. Reload re-snapshots. Tools new since the last snapshot are denied by default until allowed in the UI.
+- Reconnect uses bounded backoff and never blocks a tool call beyond the MCP call budget. A call during a dead upstream returns a readable "upstream n8n is unreachable" error, not a timeout.
+- Tool descriptions are prefixed with the upstream name in one short sentence ("Via n8n: ...").
+- Upstream errors pass through with the upstream's message intact.
+- The audit log records the upstream tool name and the prefixed name both.
+- The oauth2 runtime hook is built now; register-with-upstream is deferred.
