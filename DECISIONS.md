@@ -309,3 +309,21 @@ Phase 4 conditions (Manny), independent of the gates:
 - Completion: Manny edits a real sheet from claude.ai with both a service account and the OAuth credential.
 
 Gates in order: client library, tool surface (with `format_range`, `set_column_widths`, `freeze_rows`, `add_conditional_format` as named tools and `batch_update` as the escape hatch), value handling.
+
+## 2026-09-13: Phase 4 gate 1, Google API client
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. `google-api-python-client` plus `google-auth` | Official discovery client | Synchronous, tens of megabytes of discovery documents, errors need parsing anyway | Medium |
+| B. Plain REST with `httpx2`, JWT via PyJWT | Direct Sheets REST calls; service account JWT signed with libraries already present | No new dependencies, native async, we own errors and backoff, about 200 lines | Low to medium |
+| C. `gspread` | High-level sync library | Fights the token manager and pre-decides value handling | Medium |
+
+**Choice:** B.
+
+**Conditions (Manny):**
+
+- The shared `google` module exposes one client with get, post, put and delete taking a relative path. It is the only place a Google URL, an Authorization header, a retry or a rate-limit response is handled. Sheets, Drive and Docs never construct a request.
+- Backoff on 429 and 5xx with jitter, at most three retries, total wall time bounded to fit inside an MCP call, then a readable error saying Google rate-limited us. Other 4xx never retry.
+- Service account access tokens are cached until near expiry and shared across toolsets using the same credential, coalesced like OAuth refresh.
+- Error mapping lives in the shared module: 403 becomes "the credential does not have access to <id>, share it with <email>" for service accounts; 404 becomes "spreadsheet or range not found"; 400 passes Google's message through.
+- JWT signing and exchange are tested against the Phase 3 fake provider, extended with a service account token endpoint, so CI covers it without Google.
