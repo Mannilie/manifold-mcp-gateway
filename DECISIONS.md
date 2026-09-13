@@ -438,3 +438,7 @@ The key the `unraid` toolset uses, created under Settings, Management Access, AP
 | NOTIFICATIONS | UPDATE_ANY | `archive_notification` |
 
 `upsDevices` is not its own resource in the schema; if `ups_status` reports a permission error, the message names the resource to add. No DOCKER, no CONFIG, no OS, no API_KEY. The healthcheck touches every read field in one query and introspects the mutation and SMART types, so a missing permission or a renamed field shows on the dashboard with its name.
+
+## 2026-09-14: Upstream limitation, Unraid API 32-bit Int overflow
+
+Manny's Unraid API declares some numeric fields as GraphQL `Int` (32-bit) where the values do not fit. On the NAS the field is `vars.mdResyncSize`, which reports 7814026532 (the array's parity sync size in KiB). The current upstream schema still types the `mdResync*` fields as `Int`, so this is an unfixed upstream bug rather than a version difference. Manifold handles it at runtime: the client recognises "Int cannot represent non 32-bit signed integer value", reads the error's `path`, strips that one leaf at its selection path, retries, remembers it for the life of the runtime, and lists the omitted fields on the toolset card. Values for those fields show as null in tool results. When Unraid types the field correctly, nothing needs changing here: the overflow stops and the field comes back on the next reload.
