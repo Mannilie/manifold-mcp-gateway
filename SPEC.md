@@ -164,15 +164,22 @@ The UI calls `/api/*` only. `/api` is protected by the same Cloudflare Access ap
 
 Google Sheets read and write. Supported auth: `service_account`, `oauth2` (Google preset). Settings: optional allow list of spreadsheet IDs (empty means any the credential can reach).
 
-Tools:
-- `list_sheets(spreadsheet_id)`
-- `read_range(spreadsheet_id, range)`
+Tools (DECISIONS.md, Phase 4 gate 2):
+- `get_spreadsheet(spreadsheet_id)` title, sheets with ids, sizes, frozen rows and header row
+- `read_range(spreadsheet_id, range)` capped rows, says when truncated
 - `append_rows(spreadsheet_id, sheet, rows)`
-- `update_range(spreadsheet_id, range, values)`
-- `find_rows(spreadsheet_id, sheet, column, value)`
-- `update_rows_by_key(spreadsheet_id, sheet, key_column, updates)`
-- `clear_range(spreadsheet_id, range)`
-- `batch_update(spreadsheet_id, requests)` escape hatch to the raw Sheets API for formatting, formulas, structure changes
+- `update_range(spreadsheet_id, range, values)` overwrites without confirmation
+- `find_rows(spreadsheet_id, sheet, column, value, match)` returns row numbers
+- `update_rows_by_key(spreadsheet_id, sheet, key_column, updates)` overwrites without confirmation
+- `clear_range(spreadsheet_id, range)` destructive
+- `format_range(spreadsheet_id, range, format)`
+- `set_column_widths(spreadsheet_id, sheet, widths)`
+- `freeze_rows(spreadsheet_id, sheet, rows, columns)`
+- `add_conditional_format(spreadsheet_id, range, rule)`
+- `add_sheet(spreadsheet_id, title)`
+- `delete_sheet(spreadsheet_id, sheet)` destructive
+- `sort_range(spreadsheet_id, range, by_column, descending)`
+- `batch_update(spreadsheet_id, requests)` escape hatch to the raw Sheets API
 
 ### 10.2 `unraid` (native or proxy, Phase 5 gate)
 

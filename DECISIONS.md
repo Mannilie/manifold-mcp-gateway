@@ -327,3 +327,21 @@ Gates in order: client library, tool surface (with `format_range`, `set_column_w
 - Service account access tokens are cached until near expiry and shared across toolsets using the same credential, coalesced like OAuth refresh.
 - Error mapping lives in the shared module: 403 becomes "the credential does not have access to <id>, share it with <email>" for service accounts; 404 becomes "spreadsheet or range not found"; 400 passes Google's message through.
 - JWT signing and exchange are tested against the Phase 3 fake provider, extended with a service account token endpoint, so CI covers it without Google.
+
+## 2026-09-13: Phase 4 gate 2, Sheets tool surface
+
+| Option | What it is | Trade-off |
+|---|---|---|
+| A. SPEC list plus four formatting tools | 12 tools | Sheet management and sorting only via `batch_update` |
+| B. A plus `add_sheet`, `delete_sheet`, `sort_range` | 15 tools | Covers the common structural changes without raw requests |
+| C. B plus `get_spreadsheet` replacing `list_sheets`, and `find_rows` gains `match` | 15 tools | Better first call, less brittle finding, one spec name changes before anything learnt it |
+
+**Choice:** C, 15 tools: `get_spreadsheet`, `read_range`, `append_rows`, `update_range`, `find_rows`, `update_rows_by_key`, `clear_range`, `format_range`, `set_column_widths`, `freeze_rows`, `add_conditional_format`, `add_sheet`, `delete_sheet`, `sort_range`, `batch_update`.
+
+**Conditions (Manny):**
+
+- `get_spreadsheet` returns the header row of each sheet, first row only, so Claude can pick columns without a `read_range` first.
+- `find_rows` returns row numbers alongside the matched values so a follow-up `update_range` can target them.
+- `read_range` row cap defaults to 1000, settings-adjustable; when the cap truncates, the response says so and gives the next range to request.
+- `delete_sheet` and `clear_range` say they are destructive in the first line of the docstring. `update_range` and `update_rows_by_key` note that they overwrite without confirmation.
+- `format_range` and `add_conditional_format` docstrings list the accepted keys and example values inline.
