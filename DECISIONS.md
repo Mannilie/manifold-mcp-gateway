@@ -178,3 +178,14 @@ Key derivation: raw master key used directly, or HKDF-SHA256 per purpose. HKDF c
 - Tests: change one of two toolsets and the other's runtime object is the same instance; `build()` raising leaves the prior runtime mounted; two concurrent triggers produce exactly one extra run.
 
 Delivery order after the gates: SQLite `TokenStore` first, deployed alone, then the rest of Phase 2.
+
+## 2026-09-13: Phase 2 build notes
+
+Settled while building, none expensive to reverse.
+
+- The content hash also includes the credential's `updated_at`, so rotating a shared credential rebuilds every toolset using it. Display name is not in the hash; renaming a card never restarts anything.
+- A toolset whose last build failed is retried on every reload even if its hash is unchanged, so a transient failure (upstream down at boot) heals on the next change or trigger without a restart.
+- Each runtime's session manager runs in a task of its own. anyio cancel scopes must exit in the task that entered them, and reloads start and stop runtimes from whichever task triggered them.
+- Audit log error text: for an MCP error the message is stored, truncated to 200 characters; for any other exception only the type name is stored, because arbitrary exception messages can echo argument values.
+- Native toolsets are seeded with their manifest's `example_settings` when first registered, so enabling one without visiting the UI produces a buildable config.
+- Log level from the database is applied after the store opens; the env var covers boot.

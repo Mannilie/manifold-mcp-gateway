@@ -37,6 +37,14 @@ Or with Docker:
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
+## Enabling a toolset before the admin UI exists
+
+New native toolsets are registered disabled. Until Phase 3 ships the UI, flip them in the database. The gateway notices the change within a few seconds. On the NAS:
+
+```
+docker exec manifold python -c "import sqlite3; c=sqlite3.connect('/data/manifold.db'); c.execute(\"UPDATE toolsets SET enabled=1 WHERE key='ping-b'\"); c.commit()"
+```
+
 ## Adding a native toolset
 
 Create `manifold/toolsets/<name>/__init__.py` exposing `MANIFEST`, `build()` and `healthcheck()`. See `manifold/toolsets/manifold` for the shape. The contract tests in `tests/contract` pick it up automatically and it is served at `/<MANIFEST.key>` after a restart.

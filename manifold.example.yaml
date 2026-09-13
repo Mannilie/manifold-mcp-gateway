@@ -1,0 +1,37 @@
+# Manifold config export. Credentials are redacted; this file cannot be imported.
+manifold_export: 1
+manifold_version: 0.1.0
+settings:
+  audit_retention_days: 90
+  log_level: info
+credentials:
+- name: Google (Manny)
+  auth_kind: service_account
+  used_by:
+  - sheets
+toolsets:
+- key: manifold
+  display_name: Manifold
+  kind: native
+  enabled: true
+  credential: null
+  settings: {}
+- key: sheets
+  display_name: Google Sheets
+  kind: native
+  enabled: true
+  credential: Google (Manny)
+  settings:
+    allowed_spreadsheet_ids: []
+- key: unraid
+  display_name: Unraid
+  kind: proxy
+  enabled: true
+  credential: null
+  settings: {}
+  upstream:
+    url: http://unraid-mcp:6970/mcp
+    prefix: unraid_
+    allow: []
+    deny:
+    - execute_command

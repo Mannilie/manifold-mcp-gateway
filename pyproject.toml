@@ -14,6 +14,7 @@ dependencies = [
     "jsonschema>=4.23",
     "aiosqlite>=0.21",
     "cryptography>=43",
+    "pyyaml>=6",
 ]
 
 [dependency-groups]

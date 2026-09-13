@@ -25,20 +25,34 @@ from manifold.config.logging import configure_logging
 from manifold.config.settings import Settings
 from manifold.crypto.keycheck import verify_or_initialise
 from manifold.crypto.keys import INFO_CREDENTIALS, derive_key
+from manifold.gateway.audit import AuditMiddleware
 from manifold.gateway.dispatcher import ToolsetDispatcher
-from manifold.gateway.registry import Registry
+from manifold.gateway.registry import Registry, discover_native_toolsets
+from manifold.gateway.source import DbToolsetSource
+from manifold.gateway.watch import POLL_SECONDS, ChangeWatcher
+from manifold.store.audit import AuditRepo
+from manifold.store.credentials import CredentialsRepo
 from manifold.store.db import Database
+from manifold.store.settings import LOG_LEVEL, GatewaySettingsRepo
+from manifold.store.toolsets import ToolsetsRepo
 
 log = logging.getLogger(__name__)
 
 UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, reload_poll_seconds: float = POLL_SECONDS
+) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
     db = Database(settings.data_dir)
     credentials_key = derive_key(settings.master_key, INFO_CREDENTIALS)
+    modules = discover_native_toolsets()
+    toolsets_repo = ToolsetsRepo(db)
+    credentials_repo = CredentialsRepo(db, credentials_key)
+    settings_repo = GatewaySettingsRepo(db)
+    audit_repo = AuditRepo(db)
     # `known_toolset` reads `registry` late on purpose: the provider must exist before the
     # registry so the bearer protector can wrap each toolset, and Phase 2 hot reload changes
     # the mounted set at runtime.
@@ -48,7 +62,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.base_url,
         known_toolset=lambda key: key in registry.routes,
     )
-    registry = Registry.from_discovery(protect=BearerProtector(oauth, settings.base_url))
+    registry = Registry(
+        DbToolsetSource(toolsets_repo, credentials_repo, modules),
+        protect=BearerProtector(oauth, settings.base_url),
+        middleware_for=lambda key: [AuditMiddleware(key, audit_repo)],
+    )
+    watcher = ChangeWatcher(db, registry, reload_poll_seconds)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -56,16 +75,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             schema_version = await db.migrate()
             await verify_or_initialise(db, credentials_key)
+            level = await settings_repo.get(LOG_LEVEL)
+            if level:
+                configure_logging(str(level))
+            added = await toolsets_repo.sync_native(m.MANIFEST for m in modules.values())
+            if added:
+                log.info("native toolsets registered", extra={"toolsets": added})
             async with registry.running():
-                log.info(
-                    "manifold started",
-                    extra={
-                        "version": __version__,
-                        "schema_version": schema_version,
-                        "toolsets": registry.keys,
-                    },
-                )
-                yield
+                await watcher.start()
+                try:
+                    log.info(
+                        "manifold started",
+                        extra={
+                            "version": __version__,
+                            "schema_version": schema_version,
+                            "toolsets": registry.keys,
+                        },
+                    )
+                    yield
+                finally:
+                    await watcher.stop()
         finally:
             await db.close()
 
@@ -81,7 +110,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.oauth = oauth
     app.state.db = db
-    app.state.credentials_key = credentials_key
+    app.state.repos = {
+        "toolsets": toolsets_repo,
+        "credentials": credentials_repo,
+        "settings": settings_repo,
+        "audit": audit_repo,
+    }
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:
@@ -93,7 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if key not in registry.routes:
             raise HTTPException(status_code=404)
         body = protected_resource_metadata(
-            settings.base_url, key, registry.get(key).manifest.display_name
+            settings.base_url, key, registry.get(key).display_name
         )
         return JSONResponse(body, headers={"cache-control": "no-store"})
 
