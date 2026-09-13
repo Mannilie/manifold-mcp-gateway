@@ -9,9 +9,15 @@ Read `SPEC.md` for what it is and `DECISIONS.md` for why it is built the way it 
 ```
 /                     admin UI (Phase 3)
 /healthz              liveness
-/<toolset>            MCP Streamable HTTP endpoint for that toolset
-/<toolset>/healthz    toolset health
+/<toolset>            MCP Streamable HTTP endpoint, bearer token required
+/<toolset>/healthz    toolset health, open
+/oauth/authorize      consent step, behind Cloudflare Access
+/oauth/token, /oauth/register, /oauth/revoke
+/.well-known/oauth-authorization-server
+/.well-known/oauth-protected-resource/<toolset>
 ```
+
+claude.ai is given `https://<host>/<toolset>` as a custom connector. It discovers the OAuth server from the 401, registers itself and runs the code flow. The only human login is Cloudflare Access on the authorize page. In Phase 1 the OAuth state is in memory, so a restart means reconnecting the connectors.
 
 ## Local development
 

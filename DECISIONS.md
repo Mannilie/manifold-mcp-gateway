@@ -18,6 +18,8 @@ Raised by Claude Code in Phase 0 review, accepted by Manny. All applied to SPEC.
 | Default state of newly discovered native toolsets | Enabled; disabled | Disabled, except `manifold` which is always on | A code deploy should not expose a new endpoint until it is deliberately enabled. |
 | Portal URL on the dashboard | Show origin URL only; add optional `portal_url` per toolset | Add `portal_url`, copy button prefers it | The origin path is not what gets pasted into claude.ai. |
 
+Correction, same day: the claude.ai auth row and the `portal_url` row were based on the belief that House Hunt used a Cloudflare MCP Server Portal. It does not; House Hunt implements OAuth itself. Both rows are superseded by the claude.ai auth gate below and `portal_url` is dropped.
+
 ## 2026-09-13: Phase 1 gate, MCP server library
 
 | Option | What it is | Trade-off | Cost to change later |
@@ -88,3 +90,30 @@ Found during the Unraid deploy: cloudflared runs with host networking, so it can
 **Reason (Manny):** matches the working pattern, keeps the LAN out, one parameter.
 
 The DNS-rebinding link from the mounting gate still holds: a LAN browser cannot reach the NAS loopback, so rebinding protection stays off. If 8800 is ever bound to a LAN interface, turn it on with `mcp.mannylab.cloud` as the allowed host.
+
+## 2026-09-13: Phase 1 gate, how claude.ai authenticates to Manifold
+
+Raised when the deploy reached Cloudflare and it turned out House Hunt's MCP server speaks OAuth itself. claude.ai custom connectors need either an OAuth handshake from the server or a URL with no auth at all; a plain Cloudflare Access application gives neither.
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Cloudflare MCP Server Portal | Cloudflare speaks OAuth to claude.ai, authenticates via Access, proxies to Manifold. No code. | Unverified in this account; unclear how the portal reaches an origin that is itself behind Access. Ties every connector to a beta feature. | Low if it works, dashboard-only debugging |
+| B. Manifold speaks OAuth, Access is the login | Same shape as House Hunt. SDK supplies the routes and bearer middleware; Manifold supplies the provider. The authorize page sits behind Access. | About 400 lines with real security weight. Access bypass rules for the token, register, revoke, well-known and each toolset path. | High, every connector is bound to it |
+| C. Secret in the URL | Per-toolset token in the connector URL, 401 without it. | Ten lines. Token in Cloudflare logs and claude.ai's stored URL. Revocation is rotate and reconnect. | Low, but every connector re-added on the way off |
+
+**Choice:** B.
+
+**Reason (Manny):** the pattern already running for House Hunt, keeps Access as the only human login, no dependency on a feature that cannot be verified.
+
+Details settled while building it, cheap to change:
+
+- Issuer is the bare origin and the endpoints live under `/oauth/`. RFC 8414 allows it and a path-less issuer is what every client tries first.
+- Streams are stateless already, so a stray GET on a toolset gets 401 without a token and 405 with one.
+- Tokens are opaque, stored as SHA-256 only. Access one hour, refresh thirty days, rotated on refresh, revoke either to revoke both.
+- Every token is bound to exactly one toolset. The authorize request must carry an RFC 8707 `resource` naming a mounted toolset URL, or it fails with `invalid_target`. A token for `/sheets` is refused at `/unraid`. Manny's condition: one connector, one token, one toolset. Risk: if claude.ai ever omits `resource`, no connector can authorise; the fallback would be accepting unbound tokens, which is a one-line change in the provider.
+- Dynamic registration is open but redirect URIs must be `https` on `claude.ai` or `claude.com`. This is the only thing standing between a crafted authorize link and a stranger holding a code.
+- `MANIFOLD_ADMIN_EMAILS` is now required at boot. Without it nobody can authorise a connector.
+- The provider talks to a `TokenStore` protocol. Phase 1 ships `InMemoryTokenStore`; Phase 2 adds a SQLite store behind the same protocol and the handlers do not change. `tests/contract/test_token_store.py` is parametrised over implementations for that reason.
+- Phase 1 keeps clients and tokens in memory. Every restart logs out every connector until Phase 2 persists them, which is Phase 2's first deliverable because Watchtower restarts on every push to main.
+- Dynamic registration is rate limited globally to 30 per 10 minutes and capped at 100 stored clients, both answered with 429. Single user, one origin, so per-address limits would add nothing behind Cloudflare. "Disconnect all" in Phase 3 clears the store.
+- PKCE S256 is mandatory and `plain` is rejected. That is the SDK's default and a test now pins it.

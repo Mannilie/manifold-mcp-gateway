@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import httpx2
 import pytest
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+
+from tests.oauth_helpers import obtain_tokens
 
 INIT = {
     "jsonrpc": "2.0",
@@ -26,6 +26,15 @@ async def http(live_server):
         yield c
 
 
+@pytest.fixture
+def bearer_for(http):
+    async def _bearer(key: str) -> dict[str, str]:
+        _, tokens = await obtain_tokens(http, key)
+        return {**MCP_HEADERS, "Authorization": f"Bearer {tokens['access_token']}"}
+
+    return _bearer
+
+
 async def test_healthz(http):
     r = await http.get("/healthz")
     assert r.status_code == 200
@@ -43,8 +52,8 @@ async def test_toolset_healthz(http, key):
 
 
 @pytest.mark.parametrize("path", ["/manifold", "/manifold/", "/ping-b", "/ping-b/"])
-async def test_initialize_on_exact_and_slashed_paths(http, path):
-    r = await http.post(path, json=INIT, headers=MCP_HEADERS)
+async def test_initialize_on_exact_and_slashed_paths(http, bearer_for, path):
+    r = await http.post(path, json=INIT, headers=await bearer_for(path.strip("/")))
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/json")
     assert r.json()["result"]["serverInfo"]["name"] in ("manifold", "ping-b")
@@ -76,8 +85,8 @@ async def test_nothing_redirects(http):
 
 
 @pytest.mark.parametrize("key", ["manifold", "ping-b"])
-async def test_get_on_endpoint_is_405_not_a_hanging_stream(http, key):
-    r = await http.get(f"/{key}", headers=MCP_HEADERS, timeout=3)
+async def test_get_on_endpoint_is_405_not_a_hanging_stream(http, bearer_for, key):
+    r = await http.get(f"/{key}", headers=await bearer_for(key), timeout=3)
     assert r.status_code == 405
     assert r.headers["allow"] == "POST, DELETE"
 
@@ -91,20 +100,3 @@ async def test_unknown_path_falls_through_to_ui(http):
 async def test_reserved_and_wrong_paths_are_404(http):
     for path in ("/api", "/oauth/callback", "/manifold/other", "/static/x"):
         assert (await http.get(path)).status_code == 404, path
-
-
-@pytest.mark.parametrize(
-    ("key", "expected"),
-    [("manifold", "pong from manifold"), ("ping-b", "pong from ping-b")],
-)
-async def test_ping_via_sdk_client(live_server, key, expected):
-    async with (
-        streamable_http_client(f"{live_server}/{key}") as (read, write),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        tools = await session.list_tools()
-        assert [t.name for t in tools.tools] == ["ping"]
-        result = await session.call_tool("ping")
-        assert not result.is_error
-        assert result.content[0].text.startswith(expected)

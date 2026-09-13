@@ -32,6 +32,8 @@ from manifold.gateway.manifest import (
 
 log = logging.getLogger(__name__)
 
+Protector = Callable[[str, ASGIApp], ASGIApp]
+
 HEALTH_CACHE_SECONDS = 60.0
 HEALTH_TIMEOUT_SECONDS = 5.0
 
@@ -89,11 +91,11 @@ class ToolsetRuntime:
     def key(self) -> str:
         return self.manifest.key
 
-    def route(self) -> ToolsetRoute:
-        return ToolsetRoute(
-            mcp_app=_without_get_stream(StreamableHTTPASGIApp(self.session_manager)),
-            health=self.health,
-        )
+    def route(self, protect: Protector | None = None) -> ToolsetRoute:
+        app: ASGIApp = _without_get_stream(StreamableHTTPASGIApp(self.session_manager))
+        if protect is not None:
+            app = protect(self.key, app)
+        return ToolsetRoute(mcp_app=app, health=self.health)
 
     async def health(self) -> dict[str, Any]:
         """Cached toolset health for `/<key>/healthz`. At most one real check per 60 seconds."""
@@ -173,12 +175,14 @@ def build_runtime(
 class Registry:
     """The set of mounted toolsets. `routes` is the live mapping the dispatcher reads."""
 
-    def __init__(self, runtimes: dict[str, ToolsetRuntime]) -> None:
+    def __init__(
+        self, runtimes: dict[str, ToolsetRuntime], protect: Protector | None = None
+    ) -> None:
         self._runtimes = runtimes
-        self.routes: dict[str, ToolsetRoute] = {k: r.route() for k, r in runtimes.items()}
+        self.routes: dict[str, ToolsetRoute] = {k: r.route(protect) for k, r in runtimes.items()}
 
     @classmethod
-    def from_discovery(cls) -> Registry:
+    def from_discovery(cls, protect: Protector | None = None) -> Registry:
         # Phase 1 has no config store, so every discovered toolset is mounted with its
         # example settings and no credentials. Phase 2 reads enabled state and settings
         # from SQLite and applies the "new toolsets start disabled" rule.
@@ -186,7 +190,7 @@ class Registry:
         for key, module in discover_native_toolsets().items():
             config = ToolsetConfig(key=key, settings=module.MANIFEST.example_settings)
             runtimes[key] = build_runtime(module, config, Credentials())
-        return cls(runtimes)
+        return cls(runtimes, protect)
 
     @property
     def keys(self) -> list[str]:

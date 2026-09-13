@@ -17,9 +17,12 @@ def test_parses_full_environment(env, tmp_path):
 
 
 def test_defaults(env):
-    minimal = {"MANIFOLD_MASTER_KEY": env["MANIFOLD_MASTER_KEY"]}
+    minimal = {
+        "MANIFOLD_MASTER_KEY": env["MANIFOLD_MASTER_KEY"],
+        "MANIFOLD_ADMIN_EMAILS": env["MANIFOLD_ADMIN_EMAILS"],
+    }
     settings = Settings.from_env(minimal)
-    assert settings.admin_emails == frozenset()
+    assert settings.admin_emails == frozenset({"manny@example.com"})
     assert settings.base_url == "http://localhost:8800"
     assert settings.log_level == "info"
     assert str(settings.data_dir) == "/data"
@@ -30,10 +33,16 @@ def test_missing_master_key_fails_loudly():
         Settings.from_env({})
 
 
+def test_missing_admin_emails_fails_loudly(env):
+    del env["MANIFOLD_ADMIN_EMAILS"]
+    with pytest.raises(SettingsError, match="MANIFOLD_ADMIN_EMAILS is not set"):
+        Settings.from_env(env)
+
+
 @pytest.mark.parametrize("bad", ["not base64!!", base64.b64encode(b"short").decode()])
 def test_malformed_master_key_rejected(bad):
     with pytest.raises(SettingsError):
-        Settings.from_env({"MANIFOLD_MASTER_KEY": bad})
+        Settings.from_env({"MANIFOLD_MASTER_KEY": bad, "MANIFOLD_ADMIN_EMAILS": "a@b.c"})
 
 
 def test_master_key_never_appears_in_repr_or_str(env):
@@ -47,7 +56,7 @@ def test_master_key_never_appears_in_repr_or_str(env):
 def test_settings_error_messages_never_contain_the_key():
     raw = base64.b64encode(b"short").decode()
     with pytest.raises(SettingsError) as info:
-        Settings.from_env({"MANIFOLD_MASTER_KEY": raw})
+        Settings.from_env({"MANIFOLD_MASTER_KEY": raw, "MANIFOLD_ADMIN_EMAILS": "a@b.c"})
     assert raw not in str(info.value)
 
 

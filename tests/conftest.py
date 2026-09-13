@@ -41,11 +41,13 @@ def _free_port() -> int:
 def live_server() -> Iterator[str]:
     """The real app under real uvicorn on a random port, so the SDK client and raw HTTP
     both exercise the same stack claude.ai will hit."""
-    os.environ.setdefault("MANIFOLD_MASTER_KEY", TEST_MASTER_KEY)
+    port = _free_port()
+    os.environ["MANIFOLD_MASTER_KEY"] = TEST_MASTER_KEY
+    os.environ["MANIFOLD_ADMIN_EMAILS"] = "manny@example.com"
+    os.environ["MANIFOLD_BASE_URL"] = f"http://127.0.0.1:{port}"
     os.environ.setdefault("MANIFOLD_LOG_LEVEL", "warning")
     from manifold.app import create_app
 
-    port = _free_port()
     config = uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_config=None)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)

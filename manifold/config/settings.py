@@ -61,6 +61,11 @@ def _parse_master_key(raw: str) -> bytes:
 
 def _parse_emails(raw: str) -> frozenset[str]:
     emails = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    if not emails:
+        raise SettingsError(
+            "MANIFOLD_ADMIN_EMAILS is not set. It is the only identity allowed to authorise "
+            "claude.ai connectors and open the admin UI."
+        )
     for email in emails:
         if "@" not in email:
             raise SettingsError(f"MANIFOLD_ADMIN_EMAILS entry is not an email address: {email!r}")

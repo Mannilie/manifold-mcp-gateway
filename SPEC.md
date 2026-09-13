@@ -15,7 +15,7 @@ It replaces the pattern of one repo, one image and one connector per tool (as wi
 - Adding a new native toolset is a matter of adding one Python package and restarting.
 - Adding a proxy toolset is done entirely in the UI.
 - All configuration and credentials managed through the web UI, encrypted at rest, with no need to edit files on the NAS after first deploy.
-- Client-facing auth delegated entirely to Cloudflare Access. Manifold never implements its own login for claude.ai.
+- Manifold is the OAuth 2.1 authorization server for claude.ai, the same shape as House Hunt. The only place a human logs in is Cloudflare Access on the authorize page. Manifold never stores a password.
 
 ## 3. Non-goals
 
@@ -35,7 +35,13 @@ Base domain: `mcp.mannylab.cloud`, via Cloudflare Tunnel.
 /healthz                  Liveness, no auth, JSON
 /<toolset>                MCP Streamable HTTP endpoint for that toolset
 /<toolset>/healthz        Toolset health, no auth, JSON
-/oauth/callback           OAuth redirect target for upstream providers
+/oauth/callback           OAuth redirect target for upstream providers (Phase 3)
+/oauth/authorize          claude.ai consent step, behind Cloudflare Access
+/oauth/token              token endpoint, no Access
+/oauth/register           dynamic client registration, no Access
+/oauth/revoke             token revocation, no Access
+/.well-known/oauth-authorization-server            issuer metadata, no Access
+/.well-known/oauth-protected-resource/<toolset>    per-toolset resource metadata, no Access
 ```
 
 Toolset keys are lowercase, `[a-z0-9-]+`, and are permanent once a connector is registered. Renaming a key changes the endpoint URL and breaks the connector. The UI must warn on rename.
@@ -44,14 +50,14 @@ Reserved keys, rejected by the UI and the API: `api`, `healthz`, `oauth`, `asset
 
 The MCP endpoint is at `/<toolset>` with no `/mcp` suffix. FastMCP's default streamable path must be overridden to `/` when mounting. A POST to `/<toolset>` must be handled directly, never redirected to `/<toolset>/`.
 
-The origin path is what Manifold serves. It is not what gets pasted into claude.ai. claude.ai is given a Cloudflare MCP Server Portal URL per toolset (section 11), so each toolset has an optional `portal_url` setting. When set, the dashboard copy button shows the portal URL; otherwise it shows the origin URL. Origin paths never change because of `portal_url`.
+`https://mcp.mannylab.cloud/<toolset>` is exactly what gets pasted into claude.ai as a custom connector. claude.ai receives a 401 with a `WWW-Authenticate` hint, reads the two well-known documents, registers itself as a client and runs the authorization code flow with PKCE against Manifold.
 
 ## 5. Architecture
 
 ```
 claude.ai connector "Manifold: Sheets"
         |
-        v  (Cloudflare MCP Server Portal, Access Managed OAuth)
+        v  (OAuth 2.1 against Manifold; the authorize page is behind Cloudflare Access)
 Cloudflare Tunnel -> cloudflared (host network) -> 127.0.0.1:8800 (loopback only, never a LAN interface)
         |
         +-- /            Astro admin UI (static build served by FastAPI)
@@ -120,7 +126,9 @@ OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URL
 
 SQLite at `$MANIFOLD_DATA_DIR/manifold.db`, which is `/data/manifold.db` inside the container. Tables (indicative):
 
-- `toolsets`: key, display_name, kind, enabled, portal_url, settings_json, created_at, updated_at
+- `toolsets`: key, display_name, kind, enabled, settings_json, created_at, updated_at
+- `oauth_clients`: client_id, metadata_json, created_at (dynamic registrations from claude.ai)
+- `oauth_tokens`: token_hash, kind (access, refresh, code), client_id, subject, resource, scopes_json, expires_at, partner_hash
 - `gateway_settings`: key, value_json (log level, audit retention days, and other runtime settings from the Settings page)
 - `credentials`: toolset_key, auth_kind, ciphertext, nonce, updated_at
 - `proxy_upstreams`: toolset_key, upstream_url, prefix, allow_json, deny_json
@@ -137,15 +145,15 @@ Stack: Astro, built to static files at image build time, served by FastAPI. No S
 
 Pages:
 
-1. **Dashboard**: toolset cards with enabled toggle, health dot (ok / degraded / down / disabled), endpoint URL with copy button, tool count, last call time.
+1. **Dashboard**: toolset cards with enabled toggle, health dot (ok / degraded / down / disabled), endpoint URL with copy button, tool count, last call time, and a Cloudflare checklist: the exact Access bypass path the toolset needs (`/<toolset>`, which also covers `/<toolset>/healthz`) and the connector URL to paste into claude.ai, so adding a toolset comes with its manual steps attached.
 2. **Toolset detail**: settings form generated from `settings_schema`, credential section per section 7, "Test connection" button, tool list with per-tool enable/disable, danger zone (rename with warning, delete).
 3. **Add proxy toolset**: key, display name, upstream URL, auth, prefix, then a "Discover tools" step that lists upstream tools for allow/deny selection.
 4. **Audit log**: paginated, filterable by toolset, tool, ok/error, time range.
-5. **Settings**: master key status, export config, log level, audit retention days, restart button.
+5. **Settings**: master key status, export config, log level, audit retention days, restart button, and "Disconnect all connectors", which clears every OAuth client and token so each claude.ai connector must re-authorise.
 
 Log level: `MANIFOLD_LOG_LEVEL` is the boot default. Once the config store is loaded, the value in `gateway_settings` overrides it if present.
 
-The UI calls `/api/*` only. `/api` is protected by the same Cloudflare Access app as `/`. Manifold additionally checks the `Cf-Access-Authenticated-User-Email` header against an allow list in env (`MANIFOLD_ADMIN_EMAILS`) as defence in depth, so a misconfigured Access policy does not expose the admin API. The same header check applies to every `/<toolset>` MCP endpoint from Phase 3 onwards. Only `/healthz` and `/<toolset>/healthz` are exempt.
+The UI calls `/api/*` only. `/api` is protected by the same Cloudflare Access app as `/`. Manifold additionally checks the `Cf-Access-Authenticated-User-Email` header against `MANIFOLD_ADMIN_EMAILS` on `/api` (Phase 3) and on `/oauth/authorize` (Phase 1) as defence in depth, so a misconfigured Access policy does not expose the admin API or let a stranger authorise a connector. `/<toolset>` endpoints are protected by Manifold-issued bearer tokens instead, because claude.ai cannot pass an Access login.
 
 ## 10. Initial toolsets
 
@@ -182,8 +190,9 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 - Unraid: Community Applications-style template XML in `deploy/unraid/manifold.xml`. Env vars: `MANIFOLD_MASTER_KEY`, `MANIFOLD_ADMIN_EMAILS`, `MANIFOLD_BASE_URL`, `MANIFOLD_LOG_LEVEL`, `MANIFOLD_DATA_DIR` (default `/data`). Volume: `/mnt/user/appdata/manifold:/data`. Port 8800 is published on the NAS loopback only, via `-p 127.0.0.1:8800:8800` in the template's extra parameters, never on a LAN interface. cloudflared runs with host networking and reaches it as `http://localhost:8800`.
 - Watchtower: scoped label so only Manifold updates from this pipeline.
 - Cloudflare Tunnel: public hostname `mcp.mannylab.cloud -> http://localhost:8800`.
-- Cloudflare Access, admin: one self-hosted Access app covering `/` and `/api/*`, policy allows Manny's email. `/healthz` and `/<toolset>/healthz` get bypass policies.
-- Cloudflare Access, claude.ai: one Cloudflare MCP Server Portal per toolset, pointing at `https://mcp.mannylab.cloud/<toolset>`, with Access Managed OAuth and a policy allowing Manny's email. claude.ai is given the portal URL only. No client ID or secret is entered anywhere. This is the pattern House Hunt already uses. Manifold does not implement OAuth for clients and does not serve `/.well-known/oauth-*` metadata.
+- Cloudflare Access, Allow: one self-hosted app on `mcp.mannylab.cloud` with no path, policy allows Manny's email. It covers `/`, `/api` and `/oauth/authorize`, and anything not bypassed below.
+- Cloudflare Access, Bypass: one self-hosted app with a Bypass policy for Everyone on each of `/healthz`, `/.well-known`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`, and `/<toolset>` for every toolset (which also covers `/<toolset>/healthz`). Access matches the most specific path. Adding a toolset means adding one bypass app alongside the claude.ai connector.
+- claude.ai: one custom connector per toolset with URL `https://mcp.mannylab.cloud/<toolset>`. No client ID or secret. The consent step opens a browser to `/oauth/authorize`, Access logs Manny in, Manifold issues the code.
 - Local dev: `docker compose up` with a dev master key and SQLite in `./data`. Outside Docker, set `MANIFOLD_DATA_DIR` to a writable directory.
 
 ## 12. Observability
@@ -195,7 +204,9 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 ## 13. Security
 
 - No credential is ever logged, returned by the API in plaintext, or included in an export.
-- Admin API and toolset endpoints reject requests missing a valid Cloudflare Access email header even if Access is misconfigured.
+- Admin API and `/oauth/authorize` reject requests missing a valid Cloudflare Access email header even if Access is misconfigured. `/oauth/authorize` trusts that header only because the path is inside the Access Allow app; a request that reaches it any other way could spoof the header.
+- Toolset endpoints require a bearer token issued by Manifold. Tokens are opaque random strings stored only as SHA-256 hashes. Access tokens live one hour, refresh tokens thirty days, both rotate on refresh, revoking one revokes its partner. A token issued with a resource indicator is refused by any other toolset.
+- Dynamic client registration is open, as RFC 7591 intends, so redirect URIs are restricted to `https` on `claude.ai` and `claude.com`. Without that, a crafted authorize link would hand a stranger a code while Manny is logged in to Access.
 - Port 8800 is bound to the NAS loopback only, so the header check is not the sole barrier against LAN access.
 - OAuth `state` parameter is single-use and expires in 10 minutes.
 - Proxy toolsets never forward Manifold's own headers to upstreams. Upstream auth is set explicitly from stored credentials.
@@ -206,11 +217,11 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 **Phase 0: Spec agreed.** This document and CLAUDE.md reviewed by Manny. Done when Manny says go.
 
 **Phase 1: Skeleton, deployed end to end.**
-FastAPI app, `/healthz`, two toolsets (`manifold` with `ping`, and a second `ping-b` placeholder) mounted at their own paths, Dockerfile, compose, GitHub Actions to GHCR, Unraid template, Cloudflare Tunnel and Access configured by Manny, both endpoints registered in claude.ai as separate connectors.
+FastAPI app, `/healthz`, two toolsets (`manifold` with `ping`, and a second `ping-b` placeholder) mounted at their own paths, OAuth 2.1 server with in-memory state, Dockerfile, compose, GitHub Actions to GHCR, Unraid template, Cloudflare Tunnel and Access configured by Manny, both endpoints registered in claude.ai as separate connectors.
 Done when: Manny calls `ping` on both connectors from claude.ai on his phone.
 
 **Phase 2: Config store.**
-SQLite schema, encrypted credentials, toolset registry driven by the DB, reload on change, audit log writing, contract test harness, `manifold.example.yaml` export format.
+SQLite schema, encrypted credentials, OAuth clients and tokens persisted so a restart does not force claude.ai to reconnect, toolset registry driven by the DB, reload on change, audit log writing, contract test harness, `manifold.example.yaml` export format.
 Done when: enabling and disabling a toolset via a direct DB edit takes effect without a rebuild, and credentials round-trip through encryption.
 
 **Phase 3: Admin UI.**
