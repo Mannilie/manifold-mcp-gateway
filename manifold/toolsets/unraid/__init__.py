@@ -5,6 +5,7 @@ command execution. Mutations do nothing unless confirm is true."""
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -12,7 +13,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from manifold.gateway.manifest import Credentials, HealthResult, ToolsetConfig, ToolsetManifest
 from manifold.toolsets.unraid import queries as q
-from manifold.unraid import UnraidClient, UnraidError, UnraidSchemaError, client_for
+from manifold.unraid import (
+    UnraidClient,
+    UnraidError,
+    UnraidOverflowError,
+    UnraidSchemaError,
+    client_for,
+)
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +66,10 @@ def _gb(value: Any, unit: str = "bytes") -> float | None:
     return round(n / GB, 1)
 
 
+def _pct(value: Any) -> float | None:
+    return None if value is None else round(float(value), 1)
+
+
 def _disk(d: dict) -> dict:
     return {
         "name": d.get("name"),
@@ -76,6 +87,55 @@ def _disk(d: dict) -> dict:
         "critical_temp_c": d.get("critical"),
         "colour": d.get("color"),
     }
+
+
+_TOKEN = re.compile(r"\(.*?\)|[{}]|[A-Za-z_][A-Za-z0-9_]*|\S", re.S)
+
+
+def strip_path(document: str, path: str) -> str:
+    """Remove one leaf field at a dotted selection path, for example array.disks.size,
+    leaving same-named fields elsewhere alone. Argument lists stay with their field."""
+    target = path.split(".")
+    out: list[str] = []
+    stack: list[str] = []
+    name: str | None = None  # field name waiting to learn whether it opens a selection set
+    text: str = ""  # that name plus any argument list
+    tokens = _TOKEN.findall(document)
+    i = 0
+    while i < len(tokens) and tokens[i] != "{":  # operation keyword, name and variables
+        out.append(tokens[i])
+        i += 1
+
+    def flush_leaf() -> None:
+        nonlocal name, text
+        if name is not None and not (stack == target[:-1] and name == target[-1]):
+            out.append(text)
+        name, text = None, ""
+
+    for tok in tokens[i:]:
+        if tok == "{":
+            if name is not None:
+                stack.append(name)
+                out.append(text)
+                name, text = None, ""
+            out.append(tok)
+        elif tok == "}":
+            flush_leaf()
+            out.append(tok)
+            if stack:
+                stack.pop()
+        elif tok.startswith("("):
+            text += tok
+        else:
+            flush_leaf()
+            name, text = tok, tok
+    return " ".join(out)
+
+
+def strip_fields(document: str, dropped: dict[str, str]) -> str:
+    for path in dropped.values():
+        document = strip_path(document, path)
+    return document
 
 
 def _short(exc: Exception) -> str:
@@ -97,6 +157,8 @@ class _Unraid:
         self.verify_tls = bool(config.settings.get("verify_tls", True))
         self.credentials = credentials
         self._client: UnraidClient | None = None
+        # Leaf fields the API cannot represent (32-bit Int overflow), dropped from queries.
+        self.dropped: dict[str, str] = {}
 
     @property
     def client(self) -> UnraidClient:
@@ -106,9 +168,29 @@ class _Unraid:
 
     async def query(self, document: str, variables: dict | None = None, *, context: str) -> dict:
         try:
-            return await self.client.query(document, variables, context=context)
+            return await self.query_raw(document, variables, context=context)
         except UnraidError as exc:
             raise ToolError(str(exc)) from None
+
+    async def query_raw(
+        self, document: str, variables: dict | None = None, *, context: str
+    ) -> dict:
+        """Run a query, dropping any leaf the API overflows on and retrying, up to a limit.
+        Dropped leaves are remembered so later queries skip them without a round trip."""
+        document = strip_fields(document, self.dropped)
+        for _ in range(8):
+            try:
+                return await self.client.query(document, variables, context=context)
+            except UnraidOverflowError as exc:
+                if exc.path in self.dropped or exc.leaf == "?":
+                    raise
+                self.dropped[exc.path] = exc.path
+                log.warning(
+                    "unraid field dropped after Int overflow",
+                    extra={"field": exc.path, "leaf": exc.leaf},
+                )
+                document = strip_fields(document, self.dropped)
+        raise UnraidError("gave up after dropping eight overflowing fields", "overflow")
 
 
 def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
@@ -132,7 +214,8 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
         """
         data = await nas.query(q.SYSTEM_OVERVIEW, context="read system overview")
         info, metrics, arr, vars_ = data["info"], data["metrics"], data["array"], data["vars"]
-        kb = arr["capacity"]["kilobytes"]
+        kb = arr.get("capacity", {}).get("kilobytes", {})
+        mem, cpu = metrics.get("memory", {}), metrics.get("cpu", {})
         return {
             "hostname": info["os"].get("hostname"),
             "uptime": info["os"].get("uptime"),
@@ -142,19 +225,19 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
                 "model": info["cpu"].get("brand"),
                 "cores": info["cpu"].get("cores"),
                 "threads": info["cpu"].get("threads"),
-                "load_percent": round(metrics["cpu"]["percentTotal"], 1),
+                "load_percent": _pct(cpu.get("percentTotal")),
             },
             "memory": {
-                "total_gb": _gb(metrics["memory"]["total"]),
-                "used_gb": _gb(metrics["memory"]["used"]),
-                "available_gb": _gb(metrics["memory"]["available"]),
-                "used_percent": round(metrics["memory"]["percentTotal"], 1),
+                "total_gb": _gb(mem.get("total")),
+                "used_gb": _gb(mem.get("used")),
+                "available_gb": _gb(mem.get("available")),
+                "used_percent": _pct(mem.get("percentTotal")),
             },
             "array": {
                 "state": arr["state"],
-                "total_gb": _gb(kb["total"], "kib"),
-                "used_gb": _gb(kb["used"], "kib"),
-                "free_gb": _gb(kb["free"], "kib"),
+                "total_gb": _gb(kb.get("total"), "kib"),
+                "used_gb": _gb(kb.get("used"), "kib"),
+                "free_gb": _gb(kb.get("free"), "kib"),
             },
             "mover_running": bool(vars_.get("shareMoverActive")),
             "parity_sync_running": bool(vars_.get("mdResync")),
@@ -173,15 +256,15 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
         """
         data = await nas.query(q.ARRAY_STATUS, context="read array status")
         arr = data["array"]
-        kb = arr["capacity"]["kilobytes"]
+        kb = arr.get("capacity", {}).get("kilobytes", {})
         pc = arr.get("parityCheckStatus") or {}
         return {
             "state": arr["state"],
             "capacity": {
-                "total_gb": _gb(kb["total"], "kib"),
-                "used_gb": _gb(kb["used"], "kib"),
-                "free_gb": _gb(kb["free"], "kib"),
-                "slots": arr["capacity"].get("disks"),
+                "total_gb": _gb(kb.get("total"), "kib"),
+                "used_gb": _gb(kb.get("used"), "kib"),
+                "free_gb": _gb(kb.get("free"), "kib"),
+                "slots": arr.get("capacity", {}).get("disks"),
             },
             "parity_check": {
                 "status": pc.get("status"),
@@ -458,7 +541,7 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
     if not nas.server_url:
         return HealthResult(status="down", detail="server_url setting is empty")
     try:
-        await nas.client.query(q.HEALTH_QUERY, context="health query")
+        await nas.query_raw(q.HEALTH_QUERY, context="health query")
     except UnraidSchemaError as exc:
         return HealthResult(status="degraded", detail=str(exc))
     except UnraidError as exc:
@@ -477,7 +560,7 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
     notes: list[str] = []
     for root, document in q.OPTIONAL_QUERIES.items():
         try:
-            await nas.client.query(document, context=f"read {root}")
+            await nas.query_raw(document, context=f"read {root}")
         except UnraidSchemaError as exc:
             return HealthResult(status="degraded", detail=str(exc))
         except UnraidError as exc:
@@ -491,13 +574,8 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
                 q.INTROSPECT_TYPE, {"name": type_name}, context="introspection"
             )
         except UnraidError:
-            return HealthResult(
-                status="ok",
-                detail=(
-                    "read fields verified; introspection unavailable so write and SMART "
-                    "fields were not"
-                ),
-            )
+            notes.append("introspection unavailable, so write and SMART fields were not verified")
+            break
         present = {f["name"] for f in ((data.get("__type") or {}).get("fields") or [])}
         if not present:
             missing.append(f"type {type_name}")
@@ -509,5 +587,11 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
             detail="the Unraid API is missing "
             + ", ".join(missing)
             + "; this toolset needs updating for this Unraid version",
+        )
+    if nas.dropped:
+        notes.append(
+            "fields omitted because the Unraid API overflows its 32-bit Int on them: "
+            + ", ".join(sorted(nas.dropped.values()))
+            + " (known upstream bug; values show as null)"
         )
     return HealthResult(status="ok", detail="; ".join(notes))

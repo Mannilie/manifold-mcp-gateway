@@ -295,3 +295,49 @@ async def test_vms_and_ups_off_are_notes_not_failures(rig):
     rig.forbidden.add("vms")
     with pytest.raises(ToolError, match="not allowed"):
         await call(server, "list_vms")
+
+
+async def test_int_overflow_fields_are_dropped_and_reported(rig):
+    rig.overflow = {
+        "array.parities.size": 7814026532,
+        "array.disks.size": 7814026532,
+        "array.caches.size": 7814026532,
+        "array.boot.size": 7814026532,
+        "metrics.memory.total": 68719476736,
+    }
+    server = unraid_module.build(config(), creds())
+    before = rig.calls
+    out = await call(server, "array_status")
+    assert out["data"][0]["size_gb"] is None and out["data"][0]["temp_c"] == 36
+    assert out["parity"][0]["size_gb"] is None and out["pools"][0]["fs_used_gb"] is not None
+    assert rig.calls - before == 5, "one retry per overflowing path, then success"
+    before = rig.calls
+    out = await call(server, "system_overview")
+    assert out["memory"]["total_gb"] is None and out["memory"]["used_gb"] == 20.0
+    assert out["array"]["total_gb"] is not None, "capacity total untouched"
+    assert rig.calls - before == 2, "memory.total overflows once, then succeeds"
+    before = rig.calls
+    await call(server, "system_overview")
+    assert rig.calls - before == 1, "dropped leaves are remembered"
+    health = await unraid_module.healthcheck(config(), creds())
+    assert health.status == "ok"
+    assert "array.disks.size" in health.detail and "metrics.memory.total" in health.detail
+    assert "known upstream bug" in health.detail
+
+
+def test_strip_path_removes_only_the_addressed_leaf():
+    from manifold.toolsets.unraid import strip_fields, strip_path
+
+    doc = (
+        "query Q($f: X!) { array { disks { size fsSize } caches { size } "
+        "capacity { kilobytes { total } } } metrics { memory { total used } } "
+        "n(filter: $f) { total } }"
+    )
+    out = " ".join(strip_path(doc, "array.disks.size").split())
+    assert "disks { fsSize }" in out and "caches { size }" in out
+    out = " ".join(strip_fields(doc, {"metrics.memory.total": "metrics.memory.total"}).split())
+    assert (
+        "memory { used }" in out
+        and "kilobytes { total }" in out
+        and "n(filter: $f) { total }" in out
+    )

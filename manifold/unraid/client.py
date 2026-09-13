@@ -23,6 +23,7 @@ TOTAL_BUDGET_SECONDS = 12.0
 REQUEST_TIMEOUT_SECONDS = 20.0
 
 _FIELD_ERROR = re.compile(r'Cannot query field "(?P<field>[^"]+)" on type "(?P<type>[^"]+)"')
+_OVERFLOW = re.compile(r"Int cannot represent non 32-bit signed integer value: (?P<value>-?\d+)")
 
 _shared_http: dict[bool, httpx2.AsyncClient] = {}
 
@@ -39,6 +40,22 @@ class UnraidError(Exception):
     def __init__(self, message: str, reason: str | None = None) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class UnraidOverflowError(UnraidError):
+    """The API declared a numeric field as 32-bit Int and the value did not fit. Known
+    upstream bug on large disks and memory. Carries the leaf field so it can be dropped."""
+
+    def __init__(self, path: list, value: str) -> None:
+        leaf = next((str(p) for p in reversed(path) if isinstance(p, str)), "?")
+        dotted = ".".join(str(p) for p in path if isinstance(p, str))
+        super().__init__(
+            f"the Unraid API overflowed its 32-bit Int type on {dotted} (value {value}); "
+            "known upstream bug on large disks and memory",
+            "overflow",
+        )
+        self.leaf = leaf
+        self.path = dotted
 
 
 class UnraidSchemaError(UnraidError):
@@ -169,6 +186,9 @@ class UnraidClient:
         match = _FIELD_ERROR.search(message)
         if match:
             return UnraidSchemaError(match.group("field"), match.group("type"))
+        overflow = _OVERFLOW.search(message)
+        if overflow:
+            return UnraidOverflowError(list(first.get("path") or []), overflow.group("value"))
         code = str((first.get("extensions") or {}).get("code", "")).upper()
         if code in ("FORBIDDEN", "UNAUTHENTICATED") or "permission" in message.lower():
             return UnraidError(

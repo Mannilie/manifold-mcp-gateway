@@ -10,6 +10,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from manifold.toolsets.unraid import strip_path
+
 API_KEY = "unraid-key-123"
 
 SCHEMA_FIELDS = {
@@ -64,6 +66,7 @@ class FakeUnraid:
         self.renamed: set[str] = set()
         self.forbidden: set[str] = set()
         self.unavailable: set[str] = set()
+        self.overflow: dict[str, int] = {}  # dotted selection path -> overflowing value
         self.mutations: list[tuple[str, dict]] = []
         self.calls = 0
         self.introspection = True
@@ -110,6 +113,27 @@ class FakeUnraid:
             if re.search(rf"\b{re.escape(field)}\b", query):
                 return JSONResponse(
                     {"errors": [{"message": f'Cannot query field "{field}" on type "ArrayDisk".'}]}
+                )
+        for path, value in self.overflow.items():
+            untouched = strip_path(query, "no.such.path")  # same whitespace normalisation
+            if strip_path(query, path) != untouched:  # the leaf is still selected there
+                segments: list = []
+                for seg in path.split("."):
+                    segments.append(seg)
+                    if seg in ("disks", "parities", "caches", "domains"):
+                        segments.append(0)  # the real API reports the list index
+                return JSONResponse(
+                    {
+                        "data": None,
+                        "errors": [
+                            {
+                                "message": (
+                                    f"Int cannot represent non 32-bit signed integer value: {value}"
+                                ),
+                                "path": segments,
+                            }
+                        ],
+                    }
                 )
         if "__type" in query:
             if not self.introspection:
@@ -161,6 +185,10 @@ class FakeUnraid:
                         {"errors": [{"message": f"{root} service is not enabled on this server"}]}
                     )
                 data[root] = getattr(self, f"_{root}")(variables)
+        # Canned data ignores the selection; remove overflow paths the query no longer asks
+        # for, so a dropped field really disappears as it would from the real API.
+        for path in self.overflow:
+            data = _prune_path(data, path.split("."))
         return JSONResponse({"data": data})
 
     def _mutation(self, query, variables):
@@ -369,3 +397,16 @@ class FakeUnraid:
                 "isSpinning": True,
             },
         ]
+
+
+def _prune_path(value, path):
+    if not path:
+        return value
+    if isinstance(value, list):
+        return [_prune_path(v, path) for v in value]
+    head, rest = path[0], path[1:]
+    if isinstance(value, dict) and head in value:
+        if not rest:
+            return {k: v for k, v in value.items() if k != head}
+        return {**value, head: _prune_path(value[head], rest)}
+    return value
