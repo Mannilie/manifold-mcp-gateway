@@ -227,3 +227,22 @@ Manny enabled `ping-b` with a direct database edit on the NAS; the gateway mount
 - A small `x-manifold` extension carries UI hints: placeholder, help link, multiline. Any other unknown keyword fails the contract test.
 - Array-of-string gets a real add, remove and reorder editor, one value per row, because spreadsheet IDs are pasted one at a time.
 - Navigating away from a dirty form asks first.
+
+## 2026-09-13: Phase 3 gate 3, test strategy for upstream OAuth flows
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Fake provider in-process | Test ASGI app implementing authorize, token, refresh and failure modes; tests drive the whole Manifold flow | Fast, deterministic, covers our code; proves nothing about Google's quirks | Low |
+| B. Recorded cassettes against Google | Replay captured token exchanges | Authorize step cannot be recorded; real tokens to scrub; stale silently | Low, low value |
+| C. Live test against Manny's Google client | Runs only with env vars pointing at a real client and refresh token | The only proof the Google preset works; cannot cover first connect | Low |
+
+**Choice:** A in CI, C as the manual end-of-phase check. B skipped.
+
+**Conditions (Manny):**
+
+- The fake provider enforces the Google-specific parameters: the connect fails if `access_type=offline` and `prompt=consent` are missing from the authorize request, and a refresh token is returned only when they are present.
+- Refresh is coalesced: two tool calls hitting an expired token at once produce one refresh, and the second waits for it.
+- Refresh failure with `invalid_grant` flips the toolset to degraded with a "reconnect" action in the UI; a transient 5xx does not.
+- Callback state is single-use and bound to the credential id. A callback for a state already consumed is rejected without touching the stored token.
+
+Google client publishing: to be published to Production once the scope gate below is decided. Testing status expires refresh tokens after seven days.
