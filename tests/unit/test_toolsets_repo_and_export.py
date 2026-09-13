@@ -89,14 +89,12 @@ async def test_unknown_key_raises(repo):
 
 
 async def test_create_proxy_and_delete(repo):
-    await repo.create_proxy(
-        "unraid", "Unraid", "http://unraid-mcp:6970/mcp", "unraid_", deny=["exec"]
-    )
-    row = await repo.get("unraid")
+    await repo.create_proxy("n8n", "n8n", "http://n8n:5678/mcp-server/http", "n8n_", deny=["exec"])
+    row = await repo.get("n8n")
     assert row.kind == "proxy" and row.upstream.deny == ("exec",) and row.enabled is False
-    await repo.delete("unraid")
+    await repo.delete("n8n")
     with pytest.raises(ToolsetNotFound):
-        await repo.get("unraid")
+        await repo.get("n8n")
 
 
 async def test_export_redacts_credentials(repo, db):

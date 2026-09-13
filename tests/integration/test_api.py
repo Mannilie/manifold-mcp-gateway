@@ -179,10 +179,10 @@ async def test_rename_moves_endpoint(api):
 async def test_create_proxy_and_delete(api):
     _, http = api
     body = {
-        "key": "unraid",
-        "display_name": "Unraid",
-        "upstream_url": "http://unraid-mcp:6970/mcp",
-        "prefix": "unraid_",
+        "key": "homeassist",
+        "display_name": "Home Assistant",
+        "upstream_url": "http://homeassistant:8123/mcp",
+        "prefix": "ha_",
         "deny": ["exec"],
     }
     r = await http.post("/api/toolsets", json=body, headers=MUT)
@@ -192,8 +192,8 @@ async def test_create_proxy_and_delete(api):
     assert (
         await http.post("/api/toolsets", json={**body, "key": "healthz"}, headers=MUT)
     ).status_code == 422
-    assert (await http.delete("/api/toolsets/unraid", headers=MUT)).status_code == 204
-    assert (await http.get("/api/toolsets/unraid", headers=ACCESS_HEADER)).status_code == 404
+    assert (await http.delete("/api/toolsets/homeassist", headers=MUT)).status_code == 204
+    assert (await http.get("/api/toolsets/homeassist", headers=ACCESS_HEADER)).status_code == 404
 
 
 # -- credentials ---------------------------------------------------------------------
