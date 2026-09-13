@@ -120,7 +120,7 @@ AuthKind = Literal["none", "api_key", "basic", "bearer", "service_account", "oau
 
 Credentials are first-class objects with a name, shared between toolsets. A toolset declares which kinds it supports and the UI offers a picker of existing credentials of those kinds, plus "Add new". One Google credential named "Google (Manny)" can serve drive, docs and sheets. Deleting a credential that is in use is refused, and the refusal lists the toolsets using it. Changing a toolset to a credential of a different kind is allowed.
 
-OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URLs). The consent flow runs in the browser from the admin UI, redirects to `/oauth/callback`, and stores the refresh token. Token refresh is automatic and transparent to tools. Failed refresh sets the toolset health to degraded and surfaces in the UI.
+OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URLs). The consent flow runs in the browser from the admin UI, redirects to `/oauth/callback`, and stores the refresh token. The granted scope string from the token response is stored alongside the requested scopes and both are shown. Editing scopes marks the credential "reconnect required" and disables toolsets using it until reconnected. Token refresh is automatic, transparent to tools, and coalesced per credential. A refresh failure with `invalid_grant` sets dependent toolsets to degraded with a reconnect action; a transient upstream error does not. Google scopes: `spreadsheets` only in Phase 4, with `documents` and `drive.readonly` added when those toolsets land (DECISIONS.md, Phase 3 gate 4).
 
 ## 8. Config store
 

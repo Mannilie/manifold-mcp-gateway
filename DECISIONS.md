@@ -246,3 +246,20 @@ Manny enabled `ping-b` with a direct database edit on the NAS; the gateway mount
 - Callback state is single-use and bound to the credential id. A callback for a state already consumed is rejected without touching the stored token.
 
 Google client publishing: to be published to Production once the scope gate below is decided. Testing status expires refresh tokens after seven days.
+
+## 2026-09-13: Phase 3 gate 4, Google scopes and client publishing
+
+| Option | Scopes on the Google credential | Trade-off |
+|---|---|---|
+| A. Sheets only | `spreadsheets` | Least privilege for Phase 4 |
+| B. Sheets plus `drive.file` | `spreadsheets`, `drive.file` | `drive.file` cannot reach a pasted spreadsheet ID |
+| C. Sheets plus full Drive read | `spreadsheets`, `drive.readonly` | Read on everything before anything uses it |
+
+**Choice:** A, `https://www.googleapis.com/auth/spreadsheets` only for Phase 4. The Google OAuth client is published to Production so refresh tokens do not expire after seven days; the unverified-app warning is clicked through once per credential.
+
+**Growth path:** add `documents` (sensitive) when the docs toolset lands, `drive.readonly` (restricted) when the drive toolset lands. Each widening is a scope edit on the credential and one reconnect. Google's restricted-scope verification page lists "you are the only user of your app" among the cases where verification is not required, and its audience page describes unverified Production apps as warned and capped at 100 users, not blocked: https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification and https://support.google.com/cloud/answer/15549945
+
+**Conditions (Manny):**
+
+- Scopes are editable on the credential in the UI. Any change marks the credential "reconnect required" and disables dependent toolsets until reconnected. Widening scopes never silently reuses the old refresh token.
+- The granted scope string from the token response is stored, not the requested one, and both are shown on the credential page. Google can return fewer than asked.
