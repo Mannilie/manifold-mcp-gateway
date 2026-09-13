@@ -189,3 +189,7 @@ Settled while building, none expensive to reverse.
 - Audit log error text: for an MCP error the message is stored, truncated to 200 characters; for any other exception only the type name is stored, because arbitrary exception messages can echo argument values.
 - Native toolsets are seeded with their manifest's `example_settings` when first registered, so enabling one without visiting the UI produces a buildable config.
 - Log level from the database is applied after the store opens; the env var covers boot.
+
+## 2026-09-13: Phase 2 complete
+
+Manny enabled `ping-b` with a direct database edit on the NAS; the gateway mounted it within seconds without a restart and the claude.ai connector answered on its existing token. Credential encryption round-trips are covered by the unit and contract tests.
