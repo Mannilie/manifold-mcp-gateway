@@ -377,3 +377,22 @@ Both halves of the criterion done from claude.ai against Manny's throwaway sprea
 
 - Remove `ping-b`: the toolset package, its row, and the Cloudflare bypass note. Manny deletes the claude.ai connector. Sheets and n8n are the real second and third toolsets.
 - Gate 2 must cover how the proxy would handle an upstream that requires its own OAuth (House Hunt does), even though it is not being proxied yet: supported by the design, or ruled out.
+
+## 2026-09-13: Phase 5 gate 1, Unraid toolset
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Native toolset | GraphQL through a shared `manifold/unraid` client, `api_key` credential with `x-api-key` | No extra container; we maintain the queries against an unversioned schema | Low |
+| B. Proxy to a GitHub server | jmagar/unraid-mcp or mswdev/better-unraid-mcp from a hand-written template | Zero tool code; second container, second copy of the key, someone else's tool surface | Low |
+| C. Both | Native for the curated gaps, proxy for the long tail | Two things to keep working | Low |
+
+**Choice:** A, native.
+
+Tool list: `system_overview`, `array_status` (parity array and pools, including cache NVMe), `disk_health` (cached SMART by default, `spin_up=true` forces a fresh read and can wake sleeping disks), `ups_status` (read only, if the API exposes it), `parity_check`, `list_vms`, `vm_control`, `list_shares`, `list_notifications`, `archive_notification`, `mover_status`, `mover_control`. Docker stays with Homarr. Nothing executes commands.
+
+**Conditions (Manny):**
+
+- `healthcheck()` runs a query touching every field the tools rely on, so an Unraid upgrade that renames a field shows as degraded naming the field, not as a runtime error mid-conversation.
+- Mutations take `confirm=true` and refuse without it; the docstring says the tool does nothing unless confirm is true.
+- Credential is `api_key` with header `x-api-key`, created with read on everything and write on array, VMs, notifications and mover only. Exact permission names to be listed when the toolset is built.
+- Same shared-client pattern as Google: `manifold/unraid` owns the URL, header and error mapping. Tools never build a request.
