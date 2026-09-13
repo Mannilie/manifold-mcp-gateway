@@ -12,6 +12,6 @@ services:
     volumes:
       - ../data:/data
     ports:
-      # Published here for local development only. Never publish 8800 on the Unraid host.
+      # Local development only. On Unraid the port is bound to 127.0.0.1 via the template.
       - "8800:8800"
     restart: unless-stopped

@@ -36,7 +36,8 @@ HEALTH_CACHE_SECONDS = 60.0
 HEALTH_TIMEOUT_SECONDS = 5.0
 
 # Cloudflare terminates the public hostname, so the Host header is never localhost.
-# Safe only because port 8800 is never published on the host (DECISIONS.md, mounting gate).
+# Safe only because port 8800 is bound to the NAS loopback, never a LAN interface
+# (DECISIONS.md, mounting gate and the 2026-09-13 loopback amendment).
 TRANSPORT_SECURITY = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 

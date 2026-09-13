@@ -7,18 +7,18 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Mannilie/manifold-mcp-gateway</Support>
   <Project>https://github.com/Mannilie/manifold-mcp-gateway</Project>
-  <Overview>Self-hosted MCP gateway. One container serves many MCP endpoints, each registered in claude.ai as its own connector. Reached only through Cloudflare Tunnel: set Network to the same custom Docker network as cloudflared and do not publish any port.</Overview>
+  <Overview>Self-hosted MCP gateway. One container serves many MCP endpoints, each registered in claude.ai as its own connector. Reached only through Cloudflare Tunnel. Port 8800 is bound to 127.0.0.1 on the NAS via Extra Parameters so cloudflared (host networking) can reach it and the LAN cannot. Do not add a port mapping in the Port fields.</Overview>
   <Category>Tools: Network:Web</Category>
   <WebUI>https://mcp.mannylab.cloud</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>--label com.centurylinklabs.watchtower.enable=true</ExtraParams>
+  <ExtraParams>--label com.centurylinklabs.watchtower.enable=true -p 127.0.0.1:8800:8800</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Requires>A Cloudflare Tunnel whose cloudflared container is on the same Docker network, with a route for mcp.mannylab.cloud to http://manifold:8800.</Requires>
+  <Requires>A Cloudflare Tunnel whose cloudflared container runs with host networking, with a public hostname mcp.mannylab.cloud routed to http://localhost:8800.</Requires>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/manifold" Mode="rw" Description="All persistent state: SQLite config store, encrypted credentials, audit log." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/manifold</Config>
   <Config Name="Master key" Target="MANIFOLD_MASTER_KEY" Default="" Mode="" Description="Base64 output of `openssl rand -base64 32`. Store it in a password manager first. Losing it loses every stored credential." Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="Admin emails" Target="MANIFOLD_ADMIN_EMAILS" Default="" Mode="" Description="Comma-separated emails allowed through Cloudflare Access to the admin UI and API." Type="Variable" Display="always" Required="true" Mask="false"></Config>

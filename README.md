@@ -37,4 +37,4 @@ Create `manifold/toolsets/<name>/__init__.py` exposing `MANIFEST`, `build()` and
 
 ## Deployment
 
-The image is published to `ghcr.io/mannilie/manifold` by GitHub Actions on every push to `main`. It runs as UID 99 GID 100 and keeps all state under `/data`. Port 8800 is never published on the host; cloudflared reaches the container over the Docker network. See `deploy/unraid/manifold.xml` and SPEC.md section 11.
+The image is published to `ghcr.io/mannilie/manifold` by GitHub Actions on every push to `main`. It runs as UID 99 GID 100 and keeps all state under `/data`. Port 8800 is bound to the NAS loopback only; cloudflared runs with host networking and reaches it at `localhost:8800`. It is never exposed on a LAN interface. See `deploy/unraid/manifold.xml` and SPEC.md section 11.

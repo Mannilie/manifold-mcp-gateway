@@ -52,7 +52,7 @@ The origin path is what Manifold serves. It is not what gets pasted into claude.
 claude.ai connector "Manifold: Sheets"
         |
         v  (Cloudflare MCP Server Portal, Access Managed OAuth)
-Cloudflare Tunnel -> cloudflared -> manifold:8800 (Docker network only, never published on the host)
+Cloudflare Tunnel -> cloudflared (host network) -> 127.0.0.1:8800 (loopback only, never a LAN interface)
         |
         +-- /            Astro admin UI (static build served by FastAPI)
         +-- /api         FastAPI admin API
@@ -179,9 +179,9 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 
 - Image: `ghcr.io/mannilie/manifold`, multi-stage Dockerfile (Node build stage for Astro, Python runtime), amd64 only. UID 99 and GID 100 are baked into the image. There is no root entrypoint and no privilege drop, so `PUID` and `PGID` are not supported.
 - CI: GitHub Actions on push to `main` builds, runs tests, pushes `latest` and the git SHA tag.
-- Unraid: Community Applications-style template XML in `deploy/unraid/manifold.xml`. Env vars: `MANIFOLD_MASTER_KEY`, `MANIFOLD_ADMIN_EMAILS`, `MANIFOLD_BASE_URL`, `MANIFOLD_LOG_LEVEL`, `MANIFOLD_DATA_DIR` (default `/data`). Volume: `/mnt/user/appdata/manifold:/data`. Port 8800 is never published on the host. The container joins the same Docker network as cloudflared, which reaches it as `http://manifold:8800`.
+- Unraid: Community Applications-style template XML in `deploy/unraid/manifold.xml`. Env vars: `MANIFOLD_MASTER_KEY`, `MANIFOLD_ADMIN_EMAILS`, `MANIFOLD_BASE_URL`, `MANIFOLD_LOG_LEVEL`, `MANIFOLD_DATA_DIR` (default `/data`). Volume: `/mnt/user/appdata/manifold:/data`. Port 8800 is published on the NAS loopback only, via `-p 127.0.0.1:8800:8800` in the template's extra parameters, never on a LAN interface. cloudflared runs with host networking and reaches it as `http://localhost:8800`.
 - Watchtower: scoped label so only Manifold updates from this pipeline.
-- Cloudflare Tunnel: route `mcp.mannylab.cloud -> http://manifold:8800`.
+- Cloudflare Tunnel: public hostname `mcp.mannylab.cloud -> http://localhost:8800`.
 - Cloudflare Access, admin: one self-hosted Access app covering `/` and `/api/*`, policy allows Manny's email. `/healthz` and `/<toolset>/healthz` get bypass policies.
 - Cloudflare Access, claude.ai: one Cloudflare MCP Server Portal per toolset, pointing at `https://mcp.mannylab.cloud/<toolset>`, with Access Managed OAuth and a policy allowing Manny's email. claude.ai is given the portal URL only. No client ID or secret is entered anywhere. This is the pattern House Hunt already uses. Manifold does not implement OAuth for clients and does not serve `/.well-known/oauth-*` metadata.
 - Local dev: `docker compose up` with a dev master key and SQLite in `./data`. Outside Docker, set `MANIFOLD_DATA_DIR` to a writable directory.
@@ -196,7 +196,7 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 
 - No credential is ever logged, returned by the API in plaintext, or included in an export.
 - Admin API and toolset endpoints reject requests missing a valid Cloudflare Access email header even if Access is misconfigured.
-- Port 8800 is reachable only on the Docker network, so the header check is not the sole barrier against LAN access.
+- Port 8800 is bound to the NAS loopback only, so the header check is not the sole barrier against LAN access.
 - OAuth `state` parameter is single-use and expires in 10 minutes.
 - Proxy toolsets never forward Manifold's own headers to upstreams. Upstream auth is set explicitly from stored credentials.
 - Rate limit per toolset, configurable, default 60 calls per minute.

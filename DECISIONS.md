@@ -73,3 +73,18 @@ Cheap to flip, recorded so they are not re-derived.
 - Native toolset package directories use underscores where the key has a hyphen (`toolsets/ping_b` serves key `ping-b`). The key comes from `MANIFEST.key`, never from the directory name.
 - `httpx2` is the only HTTP client library. `mcp` 2.x depends on `httpx2` (the httpx 2 line, published under that name) and its client takes an `httpx2.AsyncClient`. Adding `httpx` as well would ship two copies of the same library. CLAUDE.md updated to match.
 - Toolset endpoints answer GET with 405. In stateless mode there is no server-initiated stream to offer, but the SDK would still hold a GET open as an idle SSE stream. The MCP spec allows 405, and it stops a stray GET tying up a connection.
+
+## 2026-09-13: Phase 1 deploy, how cloudflared reaches Manifold
+
+Found during the Unraid deploy: cloudflared runs with host networking, so it cannot resolve Docker network names. This supersedes the "never published on the host" wording in the Phase 0 amendments.
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Publish 8800 on loopback only | `-p 127.0.0.1:8800:8800`, tunnel route to `http://localhost:8800` | Reachable from the NAS itself, not the LAN. Same pattern as the other tunnel routes. | Low |
+| B. Move cloudflared to a custom Docker network | `mcpnet` shared by cloudflared and Manifold, route to `manifold:8800` | Keeps the original wording but breaks every existing `localhost:<port>` tunnel route until rewritten. | Medium, outside this project |
+
+**Choice:** A.
+
+**Reason (Manny):** matches the working pattern, keeps the LAN out, one parameter.
+
+The DNS-rebinding link from the mounting gate still holds: a LAN browser cannot reach the NAS loopback, so rebinding protection stays off. If 8800 is ever bound to a LAN interface, turn it on with `mcp.mannylab.cloud` as the allowed host.
