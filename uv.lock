@@ -259,6 +259,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx2" },
     { name = "jsonschema" },
@@ -277,6 +278,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.21" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.141" },
     { name = "httpx2", specifier = ">=2.12" },
     { name = "jsonschema", specifier = ">=4.23" },

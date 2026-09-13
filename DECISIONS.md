@@ -137,7 +137,7 @@ Key derivation: raw master key used directly, or HKDF-SHA256 per purpose. HKDF c
 **Conditions (Manny):**
 
 - Associated data is `scheme || credential_id || auth_kind`, so editing the `scheme` column cannot downgrade a ciphertext to an older scheme, and a ciphertext moved to another credential row fails. (Amended at gate 2, same day: credentials became a first-class table keyed by their own id and shared between toolsets, so the row identity in the associated data is the credential id, not a toolset key.)
-- HKDF `info` strings are constants in one module and listed here. Initial list: `manifold/credentials/v1` (credential ciphertext), `manifold/key-check/v1` (the boot-time key check). Any new purpose is appended to this list in the same commit that adds it.
+- HKDF `info` strings are constants in one module and listed here. Current list: `manifold/credentials/v1` (credential ciphertext; the key check row uses this same key with its own associated data, so no second purpose is needed yet). Any new purpose is appended to this list in the same commit that adds it.
 - The `key_check` row is encrypted under the derived credentials key, not the raw master key, so it proves derivation is stable across versions as well as proving the master key is right.
 - Tests: ciphertext moved to another credential row fails to decrypt; ciphertext with the `scheme` column edited fails; wrong master key fails at boot with the clear message.
 

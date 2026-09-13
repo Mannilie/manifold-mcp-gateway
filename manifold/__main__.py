@@ -7,6 +7,7 @@ import sys
 import uvicorn
 
 from manifold.config.settings import SettingsError
+from manifold.crypto.keycheck import MasterKeyError
 
 
 def main() -> int:
@@ -20,7 +21,7 @@ def main() -> int:
             proxy_headers=True,
             forwarded_allow_ips="*",  # cloudflared is the only thing that can reach us
         )
-    except SettingsError as exc:
+    except (SettingsError, MasterKeyError) as exc:
         print(f"manifold: {exc}", file=sys.stderr)
         return 2
     return 0

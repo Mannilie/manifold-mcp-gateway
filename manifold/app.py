@@ -23,6 +23,8 @@ from manifold.auth.routes import (
 from manifold.auth.sqlite_store import SqliteTokenStore
 from manifold.config.logging import configure_logging
 from manifold.config.settings import Settings
+from manifold.crypto.keycheck import verify_or_initialise
+from manifold.crypto.keys import INFO_CREDENTIALS, derive_key
 from manifold.gateway.dispatcher import ToolsetDispatcher
 from manifold.gateway.registry import Registry
 from manifold.store.db import Database
@@ -36,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
     db = Database(settings.data_dir)
+    credentials_key = derive_key(settings.master_key, INFO_CREDENTIALS)
     # `known_toolset` reads `registry` late on purpose: the provider must exist before the
     # registry so the bearer protector can wrap each toolset, and Phase 2 hot reload changes
     # the mounted set at runtime.
@@ -52,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db.open()
         try:
             schema_version = await db.migrate()
+            await verify_or_initialise(db, credentials_key)
             async with registry.running():
                 log.info(
                     "manifold started",
@@ -77,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.oauth = oauth
     app.state.db = db
+    app.state.credentials_key = credentials_key
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:
