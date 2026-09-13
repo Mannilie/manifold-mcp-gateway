@@ -206,7 +206,7 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
 
     @server.tool()
     async def system_overview() -> dict:
-        """One-call summary of the NAS: hostname, uptime, Unraid version, CPU and memory
+        """One-call summary of the NAS: hostname, boot time, Unraid version, CPU and memory
         load, array state and capacity, and whether the mover or a parity sync is running.
 
         Returns those as plain fields with sizes in GB. Use it first. For per-disk detail
@@ -218,7 +218,7 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
         mem, cpu = metrics.get("memory", {}), metrics.get("cpu", {})
         return {
             "hostname": info["os"].get("hostname"),
-            "uptime": info["os"].get("uptime"),
+            "booted_at": info["os"].get("uptime"),  # Unraid reports the boot time, not a duration
             "unraid_version": info["versions"]["core"].get("unraid"),
             "kernel": info["os"].get("kernel"),
             "cpu": {
