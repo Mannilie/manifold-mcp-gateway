@@ -121,3 +121,22 @@ Details settled while building it, cheap to change:
 ## 2026-09-13: Phase 1 complete, Phase 2 gate order
 
 Phase 1 done: Manny called `ping` on both connectors from the phone. Manny set the Phase 2 gate order as encryption, then schema, then hot reload, because the schema depends on how ciphertext is stored and hot reload depends on the schema. After the gates, the SQLite `TokenStore` ships and deploys on its own before the rest of Phase 2, so restarts stop logging out the connectors early.
+
+## 2026-09-13: Phase 2 gate 1, encryption library and key derivation
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. `cryptography` Fernet | AES-128-CBC plus HMAC in a versioned token, `MultiFernet` rotation | Simplest API, but no associated data, 128-bit key, CBC, unwanted timestamp, spec `nonce` column unused | Medium, re-encrypt every row |
+| B. `cryptography` AES-256-GCM with HKDF-SHA256 | AEAD, random 96-bit nonce per write, associated data binds the row, `scheme` column for rotation | Same dependency as A, about 40 lines of our own code with tests, matches the spec table | Medium, but the `scheme` column makes it a planned path |
+| C. `pynacl` SecretBox | libsodium XSalsa20-Poly1305 | Second native dependency for no gain, no associated data in the high-level API | Medium |
+
+Key derivation: raw master key used directly, or HKDF-SHA256 per purpose. HKDF chosen.
+
+**Choice:** B with HKDF-SHA256 per purpose.
+
+**Conditions (Manny):**
+
+- Associated data is `scheme || toolset_key || auth_kind`, so editing the `scheme` column cannot downgrade a ciphertext to an older scheme.
+- HKDF `info` strings are constants in one module and listed here. Initial list: `manifold/credentials/v1` (credential ciphertext), `manifold/key-check/v1` (the boot-time key check). Any new purpose is appended to this list in the same commit that adds it.
+- The `key_check` row is encrypted under the derived credentials key, not the raw master key, so it proves derivation is stable across versions as well as proving the master key is right.
+- Tests: ciphertext moved to another toolset row fails to decrypt; ciphertext with the `scheme` column edited fails; wrong master key fails at boot with the clear message.
