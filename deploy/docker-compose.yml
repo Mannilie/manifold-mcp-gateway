@@ -1,0 +1,17 @@
+# Local development only. On Unraid, use deploy/unraid/manifold.xml.
+services:
+  manifold:
+    build:
+      context: ..
+    image: ghcr.io/mannilie/manifold:latest
+    container_name: manifold
+    env_file:
+      - ../.env
+    environment:
+      MANIFOLD_DATA_DIR: /data
+    volumes:
+      - ../data:/data
+    ports:
+      # Published here for local development only. Never publish 8800 on the Unraid host.
+      - "8800:8800"
+    restart: unless-stopped

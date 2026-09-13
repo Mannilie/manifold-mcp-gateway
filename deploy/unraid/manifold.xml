@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>manifold</Name>
+  <Repository>ghcr.io/mannilie/manifold:latest</Repository>
+  <Registry>https://github.com/Mannilie/manifold-mcp-gateway/pkgs/container/manifold</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Mannilie/manifold-mcp-gateway</Support>
+  <Project>https://github.com/Mannilie/manifold-mcp-gateway</Project>
+  <Overview>Self-hosted MCP gateway. One container serves many MCP endpoints, each registered in claude.ai as its own connector. Reached only through Cloudflare Tunnel: set Network to the same custom Docker network as cloudflared and do not publish any port.</Overview>
+  <Category>Tools: Network:Web</Category>
+  <WebUI>https://mcp.mannylab.cloud</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--label com.centurylinklabs.watchtower.enable=true</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>A Cloudflare Tunnel whose cloudflared container is on the same Docker network, with a route for mcp.mannylab.cloud to http://manifold:8800.</Requires>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/manifold" Mode="rw" Description="All persistent state: SQLite config store, encrypted credentials, audit log." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/manifold</Config>
+  <Config Name="Master key" Target="MANIFOLD_MASTER_KEY" Default="" Mode="" Description="Base64 output of `openssl rand -base64 32`. Store it in a password manager first. Losing it loses every stored credential." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Admin emails" Target="MANIFOLD_ADMIN_EMAILS" Default="" Mode="" Description="Comma-separated emails allowed through Cloudflare Access to the admin UI and API." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Base URL" Target="MANIFOLD_BASE_URL" Default="https://mcp.mannylab.cloud" Mode="" Description="Public origin, used for OAuth redirect URIs and endpoint URLs shown in the UI." Type="Variable" Display="always" Required="true" Mask="false">https://mcp.mannylab.cloud</Config>
+  <Config Name="Log level" Target="MANIFOLD_LOG_LEVEL" Default="info" Mode="" Description="debug, info, warning or error. Boot default; the UI setting overrides it once loaded." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+  <Config Name="Data directory" Target="MANIFOLD_DATA_DIR" Default="/data" Mode="" Description="Leave as /data. Only the container path; the host path is the Data mapping above." Type="Variable" Display="advanced" Required="false" Mask="false">/data</Config>
+</Container>
