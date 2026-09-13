@@ -345,3 +345,18 @@ Gates in order: client library, tool surface (with `format_range`, `set_column_w
 - `read_range` row cap defaults to 1000, settings-adjustable; when the cap truncates, the response says so and gives the next range to request.
 - `delete_sheet` and `clear_range` say they are destructive in the first line of the docstring. `update_range` and `update_rows_by_key` note that they overwrite without confirmation.
 - `format_range` and `add_conditional_format` docstrings list the accepted keys and example values inline.
+
+## 2026-09-13: Phase 4 gate 3, value handling
+
+| Question | Choice |
+|---|---|
+| 3a Read shape | Header-aware: objects keyed by header plus `row_numbers` when the range starts on a header row, otherwise a 2D `values` array. `find_rows` always returns objects with row numbers. |
+| 3b Writes | `USER_ENTERED` by default so formulas, numbers and dates behave as if typed; `raw=true` per call sends `RAW`. |
+| 3c Reads | Formatted by default; `render` tri-state `formatted` (default), `raw` (unformatted, dates as ISO strings) or `formula` (cell formula text). |
+
+**Conditions (Manny):**
+
+- Header detection is explicit. `has_header` defaults to true when the range starts at row 1 or is a bare sheet name, false otherwise, and Claude can override it. Duplicate headers are suffixed (`Qty`, `Qty_2`) and the response says so. Empty cells are empty strings, never missing keys.
+- The write opt-out is named `raw` and its docstring carries the postcode example.
+- `render` is the same parameter on `read_range` and `find_rows`.
+- `get_spreadsheet` states the spreadsheet locale once so Claude knows whether dates are d/m/y before writing any.
