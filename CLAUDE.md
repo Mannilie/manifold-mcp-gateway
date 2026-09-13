@@ -75,6 +75,7 @@ README.md
 uv run pytest                  run all tests
 uv run ruff check . && uv run ruff format .
 pnpm --dir ui build            build the admin UI
+pnpm --dir ui check            typecheck the admin UI
 docker compose -f deploy/docker-compose.yml up --build
 ```
 

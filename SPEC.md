@@ -228,7 +228,7 @@ SQLite schema, encrypted credentials, OAuth clients and tokens persisted so a re
 Done when: enabling and disabling a toolset via a direct DB edit takes effect without a rebuild, and credentials round-trip through encryption.
 
 **Phase 3: Admin UI.**
-All five pages in section 9, credential forms for all auth kinds, OAuth flow with the Google preset working against a test app, defence-in-depth header check.
+All five pages in section 9, credential forms for all auth kinds, OAuth flow with the Google preset working against a test app, defence-in-depth header check on `/api` and `/oauth/authorize`, CSRF header on mutations, per-tool disable, proxy tool discovery.
 Done when: Manny adds a proxy toolset and completes a Google OAuth connect entirely from the browser.
 
 **Phase 4: Sheets toolset.**

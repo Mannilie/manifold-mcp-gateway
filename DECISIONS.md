@@ -263,3 +263,15 @@ Google client publishing: to be published to Production once the scope gate belo
 
 - Scopes are editable on the credential in the UI. Any change marks the credential "reconnect required" and disables dependent toolsets until reconnected. Widening scopes never silently reuses the old refresh token.
 - The granted scope string from the token response is stored, not the requested one, and both are shown on the credential page. Google can return fewer than asked.
+
+## 2026-09-13: Phase 3 build notes
+
+Settled while building, none expensive to reverse.
+
+- The UI is one `index.html` shell plus hashed assets. Astro is the build tool and layout; routing, data loading and forms are a small vanilla TypeScript app. `/_astro`, `/assets` and `/static` reach the UI; `/api`, `/healthz` and `/oauth` stay 404 when nothing else served them.
+- Per-tool disable is a server middleware on the toolset's MCP server: hidden from `tools/list`, refused on `tools/call`. It is part of the content hash, so toggling a tool rebuilds only that toolset.
+- Editing an oauth2 credential's client secret is treated like a scope change: stored tokens are discarded and the credential needs a reconnect.
+- Proxy tool discovery uses the SDK client against the upstream with headers from the stored credential. This does not pre-empt the Phase 5 gate on how proxying itself is implemented.
+- A toolset that is not mounted lists its tools by building a throwaway server with example settings, so the detail page is useful before enabling.
+- The restart button sends SIGTERM to the process after the response is written; Docker's restart policy brings it back.
+- The Google client is published to Production so refresh tokens do not expire after seven days. Recorded at gate 4; done by Manny in Google Cloud Console.

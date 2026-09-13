@@ -21,3 +21,6 @@ ui/.astro/
 .DS_Store
 .idea/
 .vscode/
+
+# Local dev harness
+.claude/launch.json
