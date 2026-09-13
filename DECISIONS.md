@@ -193,3 +193,19 @@ Settled while building, none expensive to reverse.
 ## 2026-09-13: Phase 2 complete
 
 Manny enabled `ping-b` with a direct database edit on the NAS; the gateway mounted it within seconds without a restart and the claude.ai connector answered on its existing token. Credential encryption round-trips are covered by the unit and contract tests.
+
+## 2026-09-13: Phase 3 gate 1, Astro output mode
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Static build | Page shells built at image build time, FastAPI serves them, pages fetch `/api` from the browser | No Node at runtime, one process; empty shell until the API answers | Medium |
+| B. SSR with Node adapter | Astro runs as a server in the container and renders per request | Filled-in first paint; second runtime, second process, header forwarding to FastAPI | Medium |
+
+**Choice:** A, static.
+
+**Conditions (Manny):**
+
+- Mutating `/api` requests must carry `X-Manifold-Request: 1` and the API rejects any without it. The browser is authenticated by the Access cookie, so without this a page on another origin could POST to `/api` with Manny's session.
+- `index.html` and API responses are served `Cache-Control: no-store`; hashed assets get a long cache lifetime.
+- Unknown paths that are not a toolset key, a reserved path or an asset fall through to `index.html` so client-side routing survives a refresh.
+- Every page has loading and error states. An empty shell that never fills in because `/api` failed must say so.
