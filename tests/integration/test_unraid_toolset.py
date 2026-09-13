@@ -164,7 +164,7 @@ async def test_healthcheck_names_a_renamed_field(rig):
     rig.introspection = True
     rig.forbidden.add("array")
     result = await unraid_module.healthcheck(config(), creds())
-    assert result.status == "degraded" and "READ_ANY on ARRAY" in result.detail
+    assert result.status == "degraded" and "cannot read: array" in result.detail
     wrong = await unraid_module.healthcheck(config(), creds("bad"))
     assert wrong.status == "down"
 

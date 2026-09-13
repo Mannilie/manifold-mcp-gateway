@@ -419,6 +419,19 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
     return server
 
 
+async def _forbidden_roots(nas: _Unraid) -> list[str]:
+    refused: list[str] = []
+    for root, document in q.ROOT_PROBES.items():
+        try:
+            await nas.client.query(document, context=f"read {root}")
+        except UnraidError as exc:
+            if exc.reason == "forbidden":
+                refused.append(root)
+            else:
+                refused.append(f"{root} ({exc.reason or 'error'})")
+    return refused
+
+
 async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> HealthResult:
     """Touch every read field the tools use in one query, and confirm the write and SMART
     fields exist by introspection, so an Unraid upgrade that renames a field shows here
@@ -433,9 +446,18 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
     except UnraidSchemaError as exc:
         return HealthResult(status="degraded", detail=str(exc))
     except UnraidError as exc:
-        return HealthResult(
-            status="degraded" if exc.reason == "forbidden" else "down", detail=str(exc)
-        )
+        if exc.reason != "forbidden":
+            return HealthResult(status="down", detail=str(exc))
+        refused = await _forbidden_roots(nas)
+        if refused:
+            return HealthResult(
+                status="degraded",
+                detail="the API key cannot read: "
+                + ", ".join(refused)
+                + ". Grant READ_ANY on the matching resources under Settings, Management "
+                "Access, API Keys. Every other root answered.",
+            )
+        return HealthResult(status="degraded", detail=str(exc))
     missing: list[str] = []
     for type_name, fields in q.FIELDS_USED.items():
         try:
