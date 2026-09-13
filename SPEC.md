@@ -174,9 +174,9 @@ Tools:
 - `clear_range(spreadsheet_id, range)`
 - `batch_update(spreadsheet_id, requests)` escape hatch to the raw Sheets API for formatting, formulas, structure changes
 
-### 10.2 `unraid` (proxy)
+### 10.2 `unraid` (native or proxy, Phase 5 gate)
 
-Upstream: existing `unraid-mcp` container. Deny by default: any tool that executes arbitrary commands. Configured via UI, not code.
+There is no existing Unraid MCP server on the NAS and none in Community Applications; the candidates are GitHub projects. The Phase 5 gate presents two options: a native toolset against the Unraid 7.2+ GraphQL API with an `api_key` credential, or one of the GitHub servers (`better-unraid-mcp`, `jmagar/unraid-mcp`) run from a hand-written template as a proxy upstream. Either way the tool list is scoped to what the Homarr connector does not already expose. Homarr has Docker start, stop and logs, DNS hole and system health. The gaps are array and parity, disk health, VMs, shares, notifications and mover. Anything that executes arbitrary commands is excluded.
 
 ### 10.3 `n8n` (proxy)
 

@@ -293,3 +293,19 @@ Google now requires published branding before an External app can leave Testing 
 - The Phase 4 Sheets toolset is built and tested against the service account first, OAuth second.
 - The credential page shows the token expiry for OAuth credentials, and the degraded state names the cause ("refresh token expired, app is in Testing") so the seven-day limit is not mistaken for a bug.
 - The checklist for B lives in `docs/google-brand-verification.md`.
+
+## 2026-09-13: Phase 3 complete, Phase 4 conditions
+
+Phase 3 done: Manny connected the Google credential through the browser (granted scope `spreadsheets`, app in Testing with Manny as test user) and created the `n8n` proxy toolset from the browser with tools discovered and allow and deny set. There is no `unraid-mcp` container; SPEC 10.2 amended and the Phase 5 gate will offer native GraphQL versus a GitHub proxy server.
+
+Phase 4 conditions (Manny), independent of the gates:
+
+- The Sheets toolset is the template for every Google toolset. Credential handling, token refresh, error mapping and rate limit backoff live in a shared `google` module, not in the sheets package.
+- Every tool docstring says what it returns and when not to use it, written for Claude.
+- Google errors come back as readable tool errors carrying the spreadsheet ID and range, never a raw error dump.
+- Settings: allow list of spreadsheet IDs, empty means any. A call outside a non-empty list is refused before touching Google.
+- Integration test against a real throwaway spreadsheet, gated on env vars, skipped in CI.
+- Built and tested against the service account first, OAuth second.
+- Completion: Manny edits a real sheet from claude.ai with both a service account and the OAuth credential.
+
+Gates in order: client library, tool surface (with `format_range`, `set_column_widths`, `freeze_rows`, `add_conditional_format` as named tools and `batch_update` as the escape hatch), value handling.
