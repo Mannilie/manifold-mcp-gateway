@@ -8,7 +8,7 @@ import httpx2
 import pytest
 
 from manifold.gateway.dispatcher import ToolsetDispatcher, ToolsetRoute
-from manifold.gateway.manifest import RESERVED_KEYS
+from manifold.gateway.manifest import RESERVED_KEYS, UI_ASSET_PREFIXES
 
 
 def _json_app(tag: str):
@@ -101,7 +101,14 @@ async def test_anything_else_under_key_is_404(client, parts):
     assert parts[4].calls == []
 
 
-@pytest.mark.parametrize("key", sorted(RESERVED_KEYS))
+@pytest.mark.parametrize("key", sorted(UI_ASSET_PREFIXES))
+async def test_ui_asset_prefixes_fall_through_to_ui(client, parts, key):
+    r = await client.get(f"/{key}/app.js")
+    assert r.status_code == 200 and r.json() == {"app": "ui"}
+    assert parts[2].calls == []
+
+
+@pytest.mark.parametrize("key", sorted(RESERVED_KEYS - UI_ASSET_PREFIXES))
 async def test_reserved_keys_are_404_not_fallthrough(client, parts, key):
     for path in (f"/{key}", f"/{key}/", f"/{key}/deeper"):
         r = await client.get(path)

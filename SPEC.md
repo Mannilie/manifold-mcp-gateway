@@ -46,7 +46,7 @@ Base domain: `mcp.mannylab.cloud`, via Cloudflare Tunnel.
 
 Toolset keys are lowercase, `[a-z0-9-]+`, and are permanent once a connector is registered. Renaming a key changes the endpoint URL and breaks the connector. The UI must warn on rename.
 
-Reserved keys, rejected by the UI and the API: `api`, `healthz`, `oauth`, `assets`, `_astro`, `static`. They collide with paths the gateway already serves.
+Reserved keys, rejected by the UI and the API: `api`, `healthz`, `oauth`, `assets`, `_astro`, `static`. They collide with paths the gateway already serves. Requests under the three asset prefixes go to the UI; the other three answer 404 if nothing else served them.
 
 The MCP endpoint is at `/<toolset>` with no `/mcp` suffix. FastMCP's default streamable path must be overridden to `/` when mounting. A POST to `/<toolset>` must be handled directly, never redirected to `/<toolset>/`.
 

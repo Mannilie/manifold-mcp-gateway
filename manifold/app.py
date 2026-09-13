@@ -53,6 +53,7 @@ def create_app(
     settings: Settings | None = None,
     reload_poll_seconds: float = POLL_SECONDS,
     upstream_http: httpx2.AsyncClient | None = None,
+    ui_dir: Path | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
@@ -183,7 +184,7 @@ def create_app(
 
     # Everything not matched above goes through the dispatcher. Unknown keys fall through
     # to the UI. Mounted last so FastAPI's own routes win and nothing is ever redirected.
-    app.mount("/", ToolsetDispatcher(registry.routes, fallback=_ui_app()))
+    app.mount("/", ToolsetDispatcher(registry.routes, fallback=_ui_app(ui_dir or UI_DIST)))
     # Outermost: cache headers on every response, including the MCP endpoints.
     app.add_middleware(_AsgiWrap, wrap=cache_control)
     return app
@@ -199,9 +200,9 @@ class _AsgiWrap:
         await self._app(scope, receive, send)
 
 
-def _ui_app() -> ASGIApp:
-    if (UI_DIST / "index.html").is_file():
-        return _spa(StaticFiles(directory=UI_DIST, html=True))
+def _ui_app(ui_dir: Path) -> ASGIApp:
+    if (ui_dir / "index.html").is_file():
+        return _spa(StaticFiles(directory=ui_dir, html=True))
     return _placeholder_ui
 
 

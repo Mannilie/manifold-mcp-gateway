@@ -1,0 +1,26 @@
+---
+import "../app/styles.css";
+---
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manifold</title>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/" data-link>Manifold</a>
+      <nav>
+        <a href="/" data-link>Toolsets</a>
+        <a href="/credentials" data-link>Credentials</a>
+        <a href="/audit" data-link>Audit log</a>
+        <a href="/settings" data-link>Settings</a>
+      </nav>
+    </header>
+    <main id="app"><p class="muted">Loading</p></main>
+    <script>
+      import { start } from "../app/main";
+      start();
+    </script>
+  </body>
+</html>

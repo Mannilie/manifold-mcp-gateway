@@ -98,7 +98,7 @@ async def test_unknown_path_falls_through_to_ui(http):
 
 
 async def test_reserved_and_wrong_paths_are_404(http):
-    for path in ("/api", "/manifold/other", "/static/x"):
+    for path in ("/api", "/manifold/other", "/healthz/extra"):
         assert (await http.get(path)).status_code == 404, path
     # the upstream OAuth callback exists now and is behind Access
     assert (await http.get("/oauth/callback")).status_code == 403

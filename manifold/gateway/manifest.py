@@ -11,7 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 KEY_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 # Paths the gateway serves itself. A toolset with one of these keys would shadow them.
-RESERVED_KEYS = frozenset({"api", "healthz", "oauth", "assets", "_astro", "static"})
+# The UI asset prefixes are reserved so a toolset cannot take them, but requests for them
+# go to the UI; the rest are served by the parent app and answer 404 if they reach the
+# dispatcher.
+UI_ASSET_PREFIXES = frozenset({"assets", "_astro", "static"})
+RESERVED_KEYS = frozenset({"api", "healthz", "oauth"}) | UI_ASSET_PREFIXES
 
 AuthKind = Literal["none", "api_key", "basic", "bearer", "service_account", "oauth2"]
 ToolsetKind = Literal["native", "proxy"]

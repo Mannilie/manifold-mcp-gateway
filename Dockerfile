@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
-# Phase 3 adds a Node stage here that builds ui/ into /app/ui/dist.
+FROM node:22-alpine AS ui
+WORKDIR /ui
+RUN corepack enable
+COPY ui/package.json ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY ui/ ./
+RUN pnpm check && pnpm build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 WORKDIR /app
@@ -19,6 +25,7 @@ FROM python:3.12-slim-bookworm
 RUN useradd --uid 99 --gid 100 --no-create-home --shell /usr/sbin/nologin manifold \
     && mkdir -p /data && chown 99:100 /data
 COPY --from=builder --chown=99:100 /app/.venv /app/.venv
+COPY --from=ui --chown=99:100 /ui/dist /app/ui/dist
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

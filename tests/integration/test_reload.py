@@ -51,11 +51,11 @@ async def test_disable_and_enable_via_direct_db_edit(http):
         edit("UPDATE toolsets SET enabled = 0 WHERE key = 'ping-b'")
 
         async def gone():
-            r = await http.post("/ping-b", json=PING, headers=auth)
-            return r.status_code == 200 and "Manifold is running" in r.text
+            return (await http.get("/healthz")).json()["toolsets"] == ["manifold"]
 
         await wait_for(gone)
-        assert (await http.get("/healthz")).json()["toolsets"] == ["manifold"]
+        r = await http.post("/ping-b", json=PING, headers=auth)
+        assert not (r.status_code == 200 and "pong" in r.text), "unmounted key still served"
     finally:
         edit("UPDATE toolsets SET enabled = 1 WHERE key = 'ping-b'")
 

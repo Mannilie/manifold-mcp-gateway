@@ -9,7 +9,8 @@ Paths handled, where `<key>` is a registered toolset:
     /<key>/           same endpoint, trailing slash tolerated
     /<key>/healthz    GET, toolset health JSON, no auth
     /<key>/<other>    404
-    /<reserved>/...   404 (these are served by the parent app; reaching here means no route)
+    /<reserved>/...   404 (served by the parent app; reaching here means no route), except
+                      the UI asset prefixes, which go to the fallback
     anything else     handed to the fallback app (the admin UI)
 """
 
@@ -22,7 +23,7 @@ from typing import Any
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from manifold.gateway.manifest import RESERVED_KEYS
+from manifold.gateway.manifest import RESERVED_KEYS, UI_ASSET_PREFIXES
 
 HealthFn = Callable[[], Awaitable[dict[str, Any]]]
 
@@ -39,11 +40,13 @@ class ToolsetDispatcher:
         routes: Mapping[str, ToolsetRoute],
         fallback: ASGIApp,
         reserved: frozenset[str] = RESERVED_KEYS,
+        ui_prefixes: frozenset[str] = UI_ASSET_PREFIXES,
     ) -> None:
         # Held by reference on purpose: Phase 2 hot reload swaps entries in this mapping.
         self._routes = routes
         self._fallback = fallback
-        self._reserved = reserved
+        self._reserved = reserved - ui_prefixes
+        self._ui_prefixes = ui_prefixes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -53,6 +56,9 @@ class ToolsetDispatcher:
         key, rest = _split(scope)
         if key in self._reserved:
             await _send_json(send, 404, {"error": "not_found"})
+            return
+        if key in self._ui_prefixes:
+            await self._fallback(scope, receive, send)
             return
         route = self._routes.get(key)
         if route is None:
