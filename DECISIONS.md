@@ -360,3 +360,11 @@ Gates in order: client library, tool surface (with `format_range`, `set_column_w
 - The write opt-out is named `raw` and its docstring carries the postcode example.
 - `render` is the same parameter on `read_range` and `find_rows`.
 - `get_spreadsheet` states the spreadsheet locale once so Claude knows whether dates are d/m/y before writing any.
+
+## 2026-09-13: Phase 4 build notes
+
+- Tool results are dicts serialised as JSON text content. Claude reads JSON fine and the SDK adds no structured schema for free-form dicts.
+- `read_range` bounds open-ended ranges to the cap plus one row before asking Google, so a 50,000-row sheet costs one small request, not one large one and a truncation. Explicit ranges are fetched as given and truncated afterwards.
+- `find_rows` and `update_rows_by_key` scan up to the cap and say so. Key matching is case-insensitive, like `find_rows` exact mode.
+- `number_format` patterns containing d, m or y and no `$` are sent as DATE formats, everything else as NUMBER. Google tolerates either, but the type label shows up in the UI's format menu.
+- Live test: `tests/live/test_sheets_live.py`, skipped unless `MANIFOLD_TEST_SA_JSON` and `MANIFOLD_TEST_SPREADSHEET_ID` are set. It creates and deletes its own sheet inside the throwaway spreadsheet.

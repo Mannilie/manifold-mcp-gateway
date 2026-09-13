@@ -49,6 +49,14 @@ New native toolsets are registered disabled. Enable them from the dashboard, or 
 docker exec manifold python -c "import sqlite3; c=sqlite3.connect('/data/manifold.db'); c.execute(\"UPDATE toolsets SET enabled=1 WHERE key='ping-b'\"); c.commit()"
 ```
 
+## Live Google test
+
+`tests/live` runs against a real spreadsheet and skips itself in CI. Point it at a service account key and a throwaway spreadsheet shared with that account as Editor:
+
+```
+MANIFOLD_TEST_SA_JSON=/path/to/sa.json MANIFOLD_TEST_SPREADSHEET_ID=1abc... uv run pytest tests/live -q
+```
+
 ## Adding a native toolset
 
 Create `manifold/toolsets/<name>/__init__.py` exposing `MANIFEST`, `build()` and `healthcheck()`. See `manifold/toolsets/manifold` for the shape. The contract tests in `tests/contract` pick it up automatically and it is served at `/<MANIFEST.key>` after a restart.

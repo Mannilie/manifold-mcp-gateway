@@ -183,6 +183,8 @@ class FakeGoogle:
             sheet_name = sheet_name.strip("'").replace("''", "'")
         else:
             sheet_name, cells = rng, ""
+        if sheet_name.startswith("'") and sheet_name.endswith("'"):
+            sheet_name = sheet_name[1:-1].replace("''", "'")
         sheet = next(
             (s for s in self.spreadsheets[sid]["sheets"] if s["title"] == sheet_name), None
         )
