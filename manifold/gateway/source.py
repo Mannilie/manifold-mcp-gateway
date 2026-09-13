@@ -68,11 +68,11 @@ class DbToolsetSource:
 
             async def health() -> HealthResult:
                 if credential_id is not None:
-                    status = (await self._credentials.get_summary(credential_id)).status
-                    if status != "ok":
+                    summary = await self._credentials.get_summary(credential_id)
+                    if summary.status != "ok":
+                        cause = summary.meta.get("last_error") or f"credential is {summary.status}"
                         return HealthResult(
-                            status="degraded",
-                            detail=f"credential needs reconnecting ({status})",
+                            status="degraded", detail=f"credential needs reconnecting: {cause}"
                         )
                 return await module.healthcheck(config, creds)
 

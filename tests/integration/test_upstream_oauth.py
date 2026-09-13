@@ -237,7 +237,9 @@ async def test_invalid_grant_flips_to_reconnect_required(rig, offline_generic):
     provider.mode = "invalid_grant"
     with pytest.raises(ReconnectRequired):
         await app.state.tokens.access_token(cid)
-    assert (await app.state.repos["credentials"].get_summary(cid)).status == "reconnect_required"
+    summary = await app.state.repos["credentials"].get_summary(cid)
+    assert summary.status == "reconnect_required"
+    assert "Reconnect" in summary.meta["last_error"]
     with pytest.raises(ReconnectRequired):
         await app.state.tokens.access_token(cid)
     assert provider.refresh_calls == 1, "no retry once marked"

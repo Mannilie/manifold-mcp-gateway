@@ -116,9 +116,11 @@ export const credentialPage: Page = async (root, params, query) => {
   row("Provider", meta.provider); row("Client ID", meta.client_id);
   row("Requested scopes", meta.scopes); row("Granted scope", meta.granted_scope ?? (c.auth_kind === "oauth2" ? "not connected yet" : undefined));
   row("Connected at", meta.connected_at ? fmtTime(String(meta.connected_at)) : undefined);
+  row("Access token expires", typeof meta.expires_at === "number" ? fmtTime(new Date(meta.expires_at * 1000).toISOString()) : undefined);
   row("Token refreshed", c.token_updated_at ? fmtTime(c.token_updated_at) : undefined);
   row("Used by", c.used_by.length ? c.used_by.join(", ") : "nothing");
   root.append(dl, notice);
+  if (meta.last_error) root.append(h("div", { class: "banner bad" }, String(meta.last_error)));
 
   if (c.auth_kind === "oauth2") {
     const connectBtn = h("button", { type: "button", class: "primary", onclick: async () => {

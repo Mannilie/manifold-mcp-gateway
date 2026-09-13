@@ -275,3 +275,21 @@ Settled while building, none expensive to reverse.
 - A toolset that is not mounted lists its tools by building a throwaway server with example settings, so the detail page is useful before enabling.
 - The restart button sends SIGTERM to the process after the response is written; Docker's restart policy brings it back.
 - The Google client is published to Production so refresh tokens do not expire after seven days. Recorded at gate 4; done by Manny in Google Cloud Console.
+
+## 2026-09-13: Phase 3 gate 4 amendment, Google publishing
+
+Google now requires published branding before an External app can leave Testing status, and publishing branding requires brand verification with homepage, privacy policy and terms of service links ("These links are required for all external production apps", https://support.google.com/cloud/answer/15549049). The click-through publish assumed at gate 4 no longer exists.
+
+| Option | What it is | Trade-off |
+|---|---|---|
+| A. Stay in Testing | Manny is a test user; refresh tokens expire after seven days | Zero setup, weekly reconnect |
+| B. Brand verification | Three pages on mannylab.cloud, brand review, then publish | Days of review, no Manifold change, refresh tokens stop expiring |
+| C. Service account for Sheets | No OAuth; share each spreadsheet with the service account | Never breaks; cannot reach unshared sheets or Drive |
+
+**Choice (Manny):** A tonight to close Phase 3, C as the default for the Sheets toolset in Phase 4, B queued as a background task because a Drive toolset cannot run on a service account and will need a Production OAuth client.
+
+**Conditions (Manny):**
+
+- The Phase 4 Sheets toolset is built and tested against the service account first, OAuth second.
+- The credential page shows the token expiry for OAuth credentials, and the degraded state names the cause ("refresh token expired, app is in Testing") so the seven-day limit is not mistaken for a bug.
+- The checklist for B lives in `docs/google-brand-verification.md`.

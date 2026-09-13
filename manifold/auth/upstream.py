@@ -197,6 +197,7 @@ class UpstreamOAuth:
                 "granted_scope": tokens.get("scope"),
                 "connected_at": utcnow(),
                 "expires_at": expires_at,
+                "last_error": None,
             },
         )
         await self._credentials.set_status(credential_id, "ok")
@@ -242,6 +243,17 @@ class UpstreamOAuth:
                 raise ReconnectRequired(body.get("error_description") or "invalid_grant")
             raise ConnectError(f"token endpoint refused: {err}")
         return body
+
+
+def reconnect_reason(meta: dict, detail: str) -> str:
+    """A cause the admin can act on. Google in Testing status expires refresh tokens after
+    seven days, and that is far more likely than a revocation for a single-user app."""
+    if meta.get("provider") == "google":
+        return (
+            "refresh token expired or revoked by Google. If the OAuth app is still in "
+            "Testing status, Google expires refresh tokens after seven days. Reconnect."
+        )
+    return f"refresh token rejected by the provider ({detail}). Reconnect."
 
 
 class TokenManager:
@@ -296,9 +308,12 @@ class TokenManager:
         }
         try:
             tokens = await self._upstream._post_token(token_url, form)
-        except ReconnectRequired:
+        except ReconnectRequired as exc:
             self._cache.pop(credential_id, None)
             await self._credentials.set_status(credential_id, "reconnect_required")
+            await self._credentials.update_meta(
+                credential_id, {"last_error": reconnect_reason(summary.meta, str(exc))}
+            )
             log.warning("refresh token rejected", extra={"credential_id": credential_id})
             raise
         self.refresh_count += 1
