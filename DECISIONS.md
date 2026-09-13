@@ -209,3 +209,21 @@ Manny enabled `ping-b` with a direct database edit on the NAS; the gateway mount
 - `index.html` and API responses are served `Cache-Control: no-store`; hashed assets get a long cache lifetime.
 - Unknown paths that are not a toolset key, a reserved path or an asset fall through to `index.html` so client-side routing survives a refresh.
 - Every page has loading and error states. An empty shell that never fills in because `/api` failed must say so.
+
+## 2026-09-13: Phase 3 gate 2, settings form generation
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Own renderer, constrained subset, no framework | About 300 lines of TypeScript for string, number, integer, boolean, enum and array-of-string; the contract test rejects schemas outside the subset | No dependency; nested objects wait for the subset to grow | Low to medium, schemas stay standard |
+| B. Library renderer | JSON Forms or react-jsonschema-form | Full coverage, but brings React or Vue and a styling job | Medium |
+| C. Hand-built form per toolset | A TypeScript component per toolset | Breaks the "one Python package" goal | Medium |
+
+**Choice:** A. The UI stays framework-free vanilla TypeScript islands.
+
+**Conditions (Manny):**
+
+- The server validates settings against the same schema on write. The renderer is a convenience, not the guard.
+- Credentials never appear in `settings_schema`. A secret-looking property name (password, token, secret, key) fails the contract test with a pointer to the credentials mechanism.
+- A small `x-manifold` extension carries UI hints: placeholder, help link, multiline. Any other unknown keyword fails the contract test.
+- Array-of-string gets a real add, remove and reorder editor, one value per row, because spreadsheet IDs are pasted one at a time.
+- Navigating away from a dirty form asks first.
