@@ -43,7 +43,8 @@ function createForm(): HTMLElement {
   const notice = h("p", {});
   const submit = h("button", { type: "button", class: "primary" }, "Add credential");
   let collect: () => Record<string, unknown> = () => ({});
-  const scopes = listEditor([], "https://www.googleapis.com/auth/spreadsheets", () => setDirty(DIRTY));
+  const SHEETS = "https://www.googleapis.com/auth/spreadsheets";
+  const scopes = listEditor([SHEETS], SHEETS, () => setDirty(DIRTY));
 
   const draw = () => {
     body.replaceChildren();
@@ -85,9 +86,13 @@ function createForm(): HTMLElement {
   kind.addEventListener("change", draw);
   draw();
   submit.addEventListener("click", async () => {
+    const body = collect();
+    if (body.auth_kind === "oauth2" && (body.scopes as string[]).length === 0) {
+      notice.textContent = "Add at least one scope. Google refuses an authorize request without one."; notice.className = "error"; return;
+    }
     submit.disabled = true; notice.textContent = "Saving"; notice.className = "muted";
     try {
-      const created = await api.post<Credential>("/api/credentials", collect());
+      const created = await api.post<Credential>("/api/credentials", body);
       setDirty(null);
       navigate(`/credentials/${created.id}`);
     } catch (err) { notice.textContent = describe(err); notice.className = "error"; submit.disabled = false; }
@@ -125,6 +130,7 @@ export const credentialPage: Page = async (root, params, query) => {
     const scopes = listEditor((meta.scopes as string[] | undefined) ?? [], "scope", () => setDirty(DIRTY));
     root.append(h("h2", {}, "Scopes"), h("p", { class: "muted" }, "Changing scopes requires a reconnect. Toolsets using this credential stop until then."), scopes.element,
       h("div", { class: "row" }, h("button", { type: "button", onclick: async () => {
+        if (scopes.get().length === 0) { say("Add at least one scope.", "error"); return; }
         try { await api.patch(`/api/credentials/${id}`, { scopes: scopes.get() }); setDirty(null); navigate(`/credentials/${id}`, { replace: true }); } catch (err) { say(describe(err), "error"); }
       } }, "Save scopes")));
   }

@@ -120,6 +120,10 @@ class UpstreamOAuth:
         scopes = summary.meta.get("scopes") or []
         if not client_id:
             raise OAuthConfigError("credential has no client_id")
+        if not scopes:
+            raise OAuthConfigError(
+                "credential has no scopes; add at least one under Scopes before connecting"
+            )
         verifier, challenge = _pkce()
         state = secrets.token_urlsafe(32)
         await self._db.conn.execute(

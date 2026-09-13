@@ -77,6 +77,15 @@ async def test_full_connect_stores_refresh_token_and_granted_scope(rig, offline_
     assert provider.token_requests[0]["code_verifier"], "PKCE verifier sent"
 
 
+async def test_connect_refused_without_scopes(rig):
+    app, http, _, _, cid = rig
+    await app.state.repos["credentials"].update_meta(cid, {"scopes": []})
+    r = await http.post(
+        f"/api/credentials/{cid}/connect", headers={**ACCESS_HEADER, "X-Manifold-Request": "1"}
+    )
+    assert r.status_code == 422 and "scopes" in r.text
+
+
 async def test_google_preset_sends_offline_and_consent(rig):
     app, _, _, _, cid = rig
     creds = app.state.repos["credentials"]
