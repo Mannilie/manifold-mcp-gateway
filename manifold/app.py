@@ -7,12 +7,16 @@ import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import httpx2
 from fastapi import FastAPI, HTTPException
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.routing import Route, request_response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from manifold import __version__
+from manifold.auth.access import AccessGate
 from manifold.auth.provider import ManifoldOAuthProvider
 from manifold.auth.routes import (
     PROTECTED_RESOURCE_PREFIX,
@@ -21,6 +25,7 @@ from manifold.auth.routes import (
     protected_resource_metadata,
 )
 from manifold.auth.sqlite_store import SqliteTokenStore
+from manifold.auth.upstream import ConnectError, TokenManager, UpstreamOAuth
 from manifold.config.logging import configure_logging
 from manifold.config.settings import Settings
 from manifold.crypto.keycheck import verify_or_initialise
@@ -42,7 +47,9 @@ UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
 
 
 def create_app(
-    settings: Settings | None = None, reload_poll_seconds: float = POLL_SECONDS
+    settings: Settings | None = None,
+    reload_poll_seconds: float = POLL_SECONDS,
+    upstream_http: httpx2.AsyncClient | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
@@ -62,12 +69,23 @@ def create_app(
         settings.base_url,
         known_toolset=lambda key: key in registry.routes,
     )
+    upstream = UpstreamOAuth(
+        db,
+        credentials_repo,
+        settings.base_url,
+        upstream_http or httpx2.AsyncClient(),
+        on_change=lambda: _reload(),
+    )
+    tokens = TokenManager(credentials_repo, upstream)
     registry = Registry(
-        DbToolsetSource(toolsets_repo, credentials_repo, modules),
+        DbToolsetSource(toolsets_repo, credentials_repo, modules, tokens),
         protect=BearerProtector(oauth, settings.base_url),
         middleware_for=lambda key: [AuditMiddleware(key, audit_repo)],
     )
     watcher = ChangeWatcher(db, registry, reload_poll_seconds)
+
+    async def _reload() -> None:
+        await registry.reload()
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -110,6 +128,8 @@ def create_app(
     app.state.registry = registry
     app.state.oauth = oauth
     app.state.db = db
+    app.state.upstream = upstream
+    app.state.tokens = tokens
     app.state.repos = {
         "toolsets": toolsets_repo,
         "credentials": credentials_repo,
@@ -131,6 +151,26 @@ def create_app(
 
     for route in build_oauth_routes(oauth, settings.base_url, settings.admin_emails):
         app.router.routes.append(route)
+
+    async def oauth_callback(request: Request):
+        """Upstream provider sends the browser here. Behind Access, admin only."""
+        q = request.query_params
+        try:
+            credential_id = await upstream.handle_callback(
+                q.get("state"), q.get("code"), q.get("error")
+            )
+        except ConnectError as exc:
+            log.warning("upstream connect failed", extra={"reason": str(exc)})
+            return PlainTextResponse(f"Connect failed: {exc}\n", status_code=400)
+        return RedirectResponse(f"/credentials/{credential_id}?connected=1", status_code=303)
+
+    app.router.routes.append(
+        Route(
+            "/oauth/callback",
+            endpoint=AccessGate(request_response(oauth_callback), settings.admin_emails),
+            methods=["GET"],
+        )
+    )
 
     # Everything not matched above goes through the dispatcher. Unknown keys fall through
     # to the UI. Mounted last so FastAPI's own routes win and nothing is ever redirected.

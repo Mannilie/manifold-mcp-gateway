@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 KEY_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
@@ -72,11 +73,30 @@ class Credentials(BaseModel):
 
     kind: AuthKind = "none"
     values: dict[str, Any] = Field(default_factory=dict, repr=False)
+    _token_getter: Callable[[], Awaitable[str]] | None = PrivateAttr(default=None)
 
     def __repr__(self) -> str:
         return f"Credentials(kind={self.kind!r}, values=<redacted {len(self.values)} keys>)"
 
     __str__ = __repr__
+
+    def with_token_getter(self, getter: Callable[[], Awaitable[str]]) -> Credentials:
+        """Attach the gateway's token refresher. Toolsets call `access_token()` per
+        request and never touch refresh tokens themselves."""
+        copy = self.model_copy()
+        copy._token_getter = getter
+        return copy
+
+    async def access_token(self) -> str:
+        """A currently valid OAuth2 access token, refreshed by the gateway when needed.
+
+        Raises ReconnectRequired when the refresh token is dead and UpstreamUnavailable
+        when the provider is temporarily unreachable."""
+        if self._token_getter is None:
+            if self.kind == "oauth2":
+                raise RuntimeError("no token getter attached to this oauth2 credential")
+            raise RuntimeError(f"credential kind {self.kind!r} has no access token")
+        return await self._token_getter()
 
 
 class HealthResult(BaseModel):
