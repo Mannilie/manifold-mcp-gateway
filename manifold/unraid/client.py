@@ -6,6 +6,7 @@ import asyncio
 import logging
 import random
 import re
+import ssl
 import time
 from typing import Any
 
@@ -79,6 +80,13 @@ class UnraidClient:
                     timeout=REQUEST_TIMEOUT_SECONDS,
                 )
             except httpx2.HTTPError as exc:
+                if _is_tls_failure(exc):
+                    raise UnraidError(
+                        f"the certificate at {self.server_url} is not trusted (self-signed?). "
+                        "For a LAN address set verify_tls to false in the unraid toolset "
+                        "settings, or use the http:// URL.",
+                        "tls",
+                    ) from exc
                 if attempt >= MAX_RETRIES or time.monotonic() - started > TOTAL_BUDGET_SECONDS:
                     raise UnraidError(
                         f"Unraid is unreachable at {self.server_url} ({type(exc).__name__}). "
@@ -140,6 +148,16 @@ class UnraidClient:
     async def _sleep(self, attempt: int) -> None:
         delay = RETRY_BASE_SECONDS * (2**attempt) + random.uniform(0, RETRY_JITTER_SECONDS)
         await asyncio.sleep(delay)
+
+
+def _is_tls_failure(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ssl.SSLError) or "CERTIFICATE_VERIFY_FAILED" in str(exc).upper():
+            return True
+        exc = exc.__cause__ or exc.__context__  # type: ignore[assignment]
+    return False
 
 
 def client_for(

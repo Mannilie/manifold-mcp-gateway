@@ -172,3 +172,53 @@ async def test_healthcheck_never_runs_the_smart_query(rig):
     await unraid_module.healthcheck(config(), creds())
     # every call was either the health query or introspection: none touched `disks {`
     assert rig.calls == 1 + len(unraid_module.q.FIELDS_USED)
+
+
+class TlsDead(httpx2.AsyncBaseTransport):
+    async def handle_async_request(self, request):
+        raise httpx2.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate"
+        )
+
+
+async def test_tls_failure_is_named_and_not_retried(monkeypatch):
+    http = httpx2.AsyncClient(transport=TlsDead())
+    monkeypatch.setattr(client_mod, "_shared_http", {True: http, False: http})
+    cfg = ToolsetConfig(key="unraid", settings={"server_url": "https://192.168.0.69"})
+    server = unraid_module.build(cfg, creds())
+    with pytest.raises(ToolError, match=r"certificate .* is not trusted .*set verify_tls to false"):
+        await call(server, "system_overview")
+    health = await unraid_module.healthcheck(cfg, creds())
+    assert health.status == "down" and "verify_tls" in health.detail
+    await http.aclose()
+
+
+async def test_healthcheck_and_tools_share_the_client_path(rig, monkeypatch):
+    """Test connection must fail exactly when the tools would."""
+    seen: list[str] = []
+    original = client_mod.UnraidClient.query
+
+    async def spy(self, document, variables=None, *, context):
+        seen.append(context)
+        return await original(self, document, variables, context=context)
+
+    monkeypatch.setattr(client_mod.UnraidClient, "query", spy)
+    await unraid_module.healthcheck(config(), creds())
+    await call(unraid_module.build(config(), creds()), "system_overview")
+    assert seen[0] == "health query" and seen[-1] == "read system overview"
+
+
+async def test_verify_tls_setting_selects_the_client(monkeypatch):
+    chosen: list[bool] = []
+    real = client_mod.shared_http
+
+    def spy(verify_tls: bool):
+        chosen.append(verify_tls)
+        return real(verify_tls)
+
+    monkeypatch.setattr(client_mod, "shared_http", spy)
+    cfg = ToolsetConfig(
+        key="unraid", settings={"server_url": "https://192.168.0.69", "verify_tls": False}
+    )
+    unraid_module._Unraid(cfg, creds()).client  # noqa: B018 - property builds the client
+    assert chosen == [False]
