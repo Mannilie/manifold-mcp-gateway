@@ -30,6 +30,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["manifold"]
+# The built admin UI is gitignored but must ship in the wheel the image installs.
+artifacts = ["manifold/ui_dist/**"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

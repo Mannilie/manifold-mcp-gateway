@@ -13,6 +13,7 @@ build/
 data/
 
 # UI (Phase 3)
+manifold/ui_dist/
 ui/node_modules/
 ui/dist/
 ui/.astro/

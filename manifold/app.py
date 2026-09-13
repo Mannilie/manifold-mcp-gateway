@@ -46,7 +46,19 @@ from manifold.store.toolsets import ToolsetsRepo
 
 log = logging.getLogger(__name__)
 
-UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
+# The image ships the built UI inside the package (manifold/ui_dist); a source checkout
+# uses the Astro build output directly.
+UI_DIST = next(
+    (
+        p
+        for p in (
+            Path(__file__).resolve().parent / "ui_dist",
+            Path(__file__).resolve().parent.parent / "ui" / "dist",
+        )
+        if (p / "index.html").is_file()
+    ),
+    Path(__file__).resolve().parent / "ui_dist",
+)
 
 
 def create_app(

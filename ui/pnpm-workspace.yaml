@@ -1,3 +1,8 @@
+packages:
+  - .
+
+# pnpm 11+ refuses dependency build scripts unless allowed here. esbuild needs its
+# postinstall for the binary; sharp is Astro's optional image tool.
 allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
+  esbuild: true
+  sharp: true

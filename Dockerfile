@@ -3,7 +3,7 @@
 FROM node:22-alpine AS ui
 WORKDIR /ui
 RUN corepack enable
-COPY ui/package.json ui/pnpm-lock.yaml ./
+COPY ui/package.json ui/pnpm-lock.yaml ui/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY ui/ ./
 RUN pnpm check && pnpm build
@@ -17,6 +17,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 COPY manifold ./manifold
+COPY --from=ui /ui/dist ./manifold/ui_dist
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
@@ -25,7 +26,6 @@ FROM python:3.12-slim-bookworm
 RUN useradd --uid 99 --gid 100 --no-create-home --shell /usr/sbin/nologin manifold \
     && mkdir -p /data && chown 99:100 /data
 COPY --from=builder --chown=99:100 /app/.venv /app/.venv
-COPY --from=ui --chown=99:100 /ui/dist /app/ui/dist
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
