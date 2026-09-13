@@ -62,6 +62,7 @@ class UnraidClient:
         self._api_key = api_key
         self._header = header
         self._http = http
+        self._logged_request = False
 
     async def query(
         self, document: str, variables: dict[str, Any] | None = None, *, context: str
@@ -69,15 +70,31 @@ class UnraidClient:
         """Run a GraphQL document and return its `data`. Raises UnraidError with a message
         Claude can act on."""
         url = f"{self.server_url}/graphql"
+        headers = {self._header: self._api_key, "Accept": "application/json"}
         started = time.monotonic()
         attempt = 0
         while True:
+            # The GUI sets session cookies; a cookie on a GraphQL POST wakes emhttp's CSRF
+            # check. The API is authenticated by the key header alone, never by a cookie.
+            self._http.cookies.clear()
+            if not self._logged_request:
+                self._logged_request = True
+                log.info(
+                    "unraid request",
+                    extra={
+                        "method": "POST",
+                        "url": url,
+                        "header_names": sorted([*headers, "content-type"]),
+                        "follow_redirects": False,
+                    },
+                )
             try:
                 response = await self._http.post(
                     url,
                     json={"query": document, "variables": variables or {}},
-                    headers={self._header: self._api_key, "Accept": "application/json"},
+                    headers=headers,
                     timeout=REQUEST_TIMEOUT_SECONDS,
+                    follow_redirects=False,
                 )
             except httpx2.HTTPError as exc:
                 if _is_tls_failure(exc):
@@ -106,6 +123,22 @@ class UnraidClient:
                 await self._sleep(attempt)
                 attempt += 1
                 continue
+            if 300 <= response.status_code < 400:
+                raise UnraidError(
+                    f"Unraid redirected {url} to {response.headers.get('location', '?')}. "
+                    "Set server_url to the exact origin the GUI answers on, with no path, "
+                    "matching the scheme (http or https) it serves.",
+                    "redirect",
+                )
+            if "invalid csrf token" in response.text.lower():
+                raise UnraidError(
+                    f"{url} was answered by the Unraid web GUI, not the API (Invalid CSRF "
+                    "token). The GUI's nginx did not hand the request to the API. Check that "
+                    "the API is enabled under Settings, Management Access, that server_url is "
+                    "the GUI origin with no path, and compare the 'unraid request' log line "
+                    "with a working curl.",
+                    "csrf",
+                )
             if response.status_code in (401, 403):
                 raise UnraidError(
                     "Unraid rejected the API key. Check the credential and that the key has "

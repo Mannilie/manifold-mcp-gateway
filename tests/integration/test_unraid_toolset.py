@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import httpx2
@@ -222,3 +223,51 @@ async def test_verify_tls_setting_selects_the_client(monkeypatch):
     )
     unraid_module._Unraid(cfg, creds()).client  # noqa: B018 - property builds the client
     assert chosen == [False]
+
+
+class Answer(httpx2.AsyncBaseTransport):
+    def __init__(self, status: int, text: str, headers: dict | None = None) -> None:
+        self.status, self.text, self.headers = status, text, headers or {}
+        self.requests: list[httpx2.Request] = []
+
+    async def handle_async_request(self, request):
+        self.requests.append(request)
+        return httpx2.Response(self.status, text=self.text, headers=self.headers, request=request)
+
+
+async def test_csrf_and_redirect_are_their_own_errors(monkeypatch):
+    for transport, pattern in (
+        (Answer(200, "Invalid CSRF token"), r"answered by the Unraid web GUI, not the API"),
+        (Answer(403, "Invalid CSRF token"), r"answered by the Unraid web GUI"),
+        (
+            Answer(302, "", {"location": "https://192.168.0.69/login"}),
+            r"redirected .* to https://192.168.0.69/login",
+        ),
+    ):
+        http = httpx2.AsyncClient(transport=transport)
+        monkeypatch.setattr(client_mod, "_shared_http", {True: http, False: http})
+        server = unraid_module.build(config(), creds())
+        with pytest.raises(ToolError, match=pattern):
+            await call(server, "system_overview")
+        await http.aclose()
+
+
+async def test_request_shape_matches_curl(monkeypatch, caplog):
+    """POST <origin>/graphql, x-api-key and content-type only, no cookie, no redirects."""
+    transport = Answer(200, '{"data": {}}')
+    http = httpx2.AsyncClient(transport=transport)
+    http.cookies.set("unraid_session", "stale", domain="unraid.test")
+    monkeypatch.setattr(client_mod, "_shared_http", {True: http, False: http})
+    server = unraid_module.build(config(), creds())
+    with caplog.at_level("INFO", logger="manifold.unraid.client"), contextlib.suppress(ToolError):
+        await call(server, "mover_status")  # empty data is fine for this test
+    req = transport.requests[0]
+    assert req.method == "POST" and str(req.url) == f"{URL}/graphql"
+    assert req.headers["x-api-key"] == API_KEY
+    assert req.headers["content-type"] == "application/json"
+    assert "cookie" not in req.headers and "authorization" not in req.headers
+    assert "origin" not in req.headers and "referer" not in req.headers
+    logged = [r for r in caplog.records if r.getMessage() == "unraid request"]
+    assert logged and logged[0].url == f"{URL}/graphql" and "x-api-key" in logged[0].header_names
+    assert API_KEY not in str(logged[0].__dict__)
+    await http.aclose()
