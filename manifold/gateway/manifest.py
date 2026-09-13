@@ -1,0 +1,86 @@
+"""Toolset contract types (SPEC.md section 6)."""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+KEY_PATTERN = re.compile(r"^[a-z0-9-]+$")
+
+# Paths the gateway serves itself. A toolset with one of these keys would shadow them.
+RESERVED_KEYS = frozenset({"api", "healthz", "oauth", "assets", "_astro", "static"})
+
+AuthKind = Literal["none", "api_key", "basic", "bearer", "service_account", "oauth2"]
+ToolsetKind = Literal["native", "proxy"]
+HealthStatus = Literal["ok", "degraded", "down"]
+
+
+def validate_key(key: str) -> str:
+    """Return the key if it is a valid, unreserved toolset key. Raise ValueError otherwise."""
+    if not KEY_PATTERN.fullmatch(key):
+        raise ValueError(f"Toolset key {key!r} must match {KEY_PATTERN.pattern}")
+    if key in RESERVED_KEYS:
+        raise ValueError(f"Toolset key {key!r} is reserved")
+    return key
+
+
+class ToolsetManifest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    display_name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    kind: ToolsetKind
+    supported_auth: list[AuthKind]
+    settings_schema: dict[str, Any]
+    example_settings: dict[str, Any]
+    version: str = Field(min_length=1)
+
+    @field_validator("key")
+    @classmethod
+    def _check_key(cls, value: str) -> str:
+        return validate_key(value)
+
+    @field_validator("supported_auth")
+    @classmethod
+    def _check_auth(cls, value: list[AuthKind]) -> list[AuthKind]:
+        if not value:
+            raise ValueError("supported_auth must list at least one auth kind")
+        if len(set(value)) != len(value):
+            raise ValueError("supported_auth contains duplicates")
+        return value
+
+
+class ToolsetConfig(BaseModel):
+    """Per-toolset configuration as stored in the config store. Phase 1 has no store, so
+    this is built from the manifest's example settings."""
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    settings: dict[str, Any] = Field(default_factory=dict)
+    portal_url: str | None = None
+
+
+class Credentials(BaseModel):
+    """Decrypted credential values handed to a toolset. Never logged, never serialised
+    by anything but the crypto layer. The repr hides every value."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: AuthKind = "none"
+    values: dict[str, Any] = Field(default_factory=dict, repr=False)
+
+    def __repr__(self) -> str:
+        return f"Credentials(kind={self.kind!r}, values=<redacted {len(self.values)} keys>)"
+
+    __str__ = __repr__
+
+
+class HealthResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    status: HealthStatus
+    detail: str = ""

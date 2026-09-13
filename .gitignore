@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local state
+.env
+data/
+
+# UI (Phase 3)
+ui/node_modules/
+ui/dist/
+ui/.astro/
+
+# Editors
+.DS_Store
+.idea/
+.vscode/
