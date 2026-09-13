@@ -12,6 +12,7 @@ dependencies = [
     "httpx2>=2.12",
     "pydantic>=2.10",
     "jsonschema>=4.23",
+    "aiosqlite>=0.21",
 ]
 
 [dependency-groups]

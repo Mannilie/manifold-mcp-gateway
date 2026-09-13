@@ -20,11 +20,12 @@ from manifold.auth.routes import (
     build_oauth_routes,
     protected_resource_metadata,
 )
-from manifold.auth.store import InMemoryTokenStore
+from manifold.auth.sqlite_store import SqliteTokenStore
 from manifold.config.logging import configure_logging
 from manifold.config.settings import Settings
 from manifold.gateway.dispatcher import ToolsetDispatcher
 from manifold.gateway.registry import Registry
+from manifold.store.db import Database
 
 log = logging.getLogger(__name__)
 
@@ -34,12 +35,12 @@ UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     configure_logging(settings.log_level)
-    # Phase 1: OAuth state is in memory, so a restart means claude.ai reconnects.
+    db = Database(settings.data_dir)
     # `known_toolset` reads `registry` late on purpose: the provider must exist before the
     # registry so the bearer protector can wrap each toolset, and Phase 2 hot reload changes
     # the mounted set at runtime.
     oauth = ManifoldOAuthProvider(
-        InMemoryTokenStore(),
+        SqliteTokenStore(db),
         settings.admin_emails,
         settings.base_url,
         known_toolset=lambda key: key in registry.routes,
@@ -48,9 +49,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        async with registry.running():
-            log.info("manifold started", extra={"version": __version__, "toolsets": registry.keys})
-            yield
+        await db.open()
+        try:
+            schema_version = await db.migrate()
+            async with registry.running():
+                log.info(
+                    "manifold started",
+                    extra={
+                        "version": __version__,
+                        "schema_version": schema_version,
+                        "toolsets": registry.keys,
+                    },
+                )
+                yield
+        finally:
+            await db.close()
 
     app = FastAPI(
         title="Manifold",
@@ -63,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.registry = registry
     app.state.oauth = oauth
+    app.state.db = db
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:

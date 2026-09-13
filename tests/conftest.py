@@ -38,13 +38,14 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def live_server() -> Iterator[str]:
+def live_server(tmp_path_factory) -> Iterator[str]:
     """The real app under real uvicorn on a random port, so the SDK client and raw HTTP
     both exercise the same stack claude.ai will hit."""
     port = _free_port()
     os.environ["MANIFOLD_MASTER_KEY"] = TEST_MASTER_KEY
     os.environ["MANIFOLD_ADMIN_EMAILS"] = "manny@example.com"
     os.environ["MANIFOLD_BASE_URL"] = f"http://127.0.0.1:{port}"
+    os.environ["MANIFOLD_DATA_DIR"] = str(tmp_path_factory.mktemp("data"))
     os.environ.setdefault("MANIFOLD_LOG_LEVEL", "warning")
     from manifold.app import create_app
 

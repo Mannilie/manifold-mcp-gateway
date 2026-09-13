@@ -1,4 +1,7 @@
-"""Every TokenStore implementation must pass these. Phase 2 adds the SQLite store here."""
+"""Every TokenStore implementation must pass these.
+
+Tokens and codes always belong to a registered client; the provider guarantees it and the
+SQLite schema enforces it, so every test registers the client first."""
 
 from __future__ import annotations
 
@@ -6,14 +9,21 @@ import pytest
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
 from mcp.shared.auth import OAuthClientInformationFull
 
+from manifold.auth.sqlite_store import SqliteTokenStore
 from manifold.auth.store import InMemoryTokenStore, TokenStore
+from manifold.store.db import Database
 
-STORES = {"memory": InMemoryTokenStore}
 
-
-@pytest.fixture(params=sorted(STORES), ids=sorted(STORES))
-def store(request) -> TokenStore:
-    return STORES[request.param]()
+@pytest.fixture(params=["memory", "sqlite"])
+async def store(request, tmp_path) -> TokenStore:
+    if request.param == "memory":
+        yield InMemoryTokenStore()
+        return
+    db = Database(tmp_path)
+    await db.open()
+    await db.migrate()
+    yield SqliteTokenStore(db)
+    await db.close()
 
 
 def client(client_id: str = "c1") -> OAuthClientInformationFull:
@@ -56,6 +66,7 @@ async def test_clients_round_trip_and_count(store):
 
 
 async def test_code_is_single_use(store):
+    await store.save_client(client())
     await store.save_code(code())
     assert (await store.get_code("h-code")).client_id == "c1"
     assert await store.delete_code("h-code") is True
@@ -64,6 +75,7 @@ async def test_code_is_single_use(store):
 
 
 async def test_token_pair_round_trip(store):
+    await store.save_client(client())
     await store.save_token_pair(*pair())
     assert (await store.get_access_token("h-access")).client_id == "c1"
     assert (await store.get_refresh_token("h-refresh")).client_id == "c1"
@@ -73,6 +85,7 @@ async def test_token_pair_round_trip(store):
 
 @pytest.mark.parametrize("which", ["h-access", "h-refresh"])
 async def test_revoking_either_removes_both(store, which):
+    await store.save_client(client())
     await store.save_token_pair(*pair())
     await store.save_token_pair(*pair("other-a", "other-r"))
     await store.revoke(which)
@@ -82,10 +95,12 @@ async def test_revoking_either_removes_both(store, which):
 
 
 async def test_revoking_unknown_is_a_noop(store):
+    await store.save_client(client())
     await store.revoke("nothing")
 
 
 async def test_sweep_drops_expired_only(store):
+    await store.save_client(client())
     await store.save_code(code("old", expires_at=100))
     await store.save_code(code("new", expires_at=10**12))
     await store.save_token_pair(*pair("a-old", "r-old", expires_at=100))

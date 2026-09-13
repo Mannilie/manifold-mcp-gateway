@@ -17,7 +17,7 @@ Read `SPEC.md` for what it is and `DECISIONS.md` for why it is built the way it 
 /.well-known/oauth-protected-resource/<toolset>
 ```
 
-claude.ai is given `https://<host>/<toolset>` as a custom connector. It discovers the OAuth server from the 401, registers itself and runs the code flow. The only human login is Cloudflare Access on the authorize page. In Phase 1 the OAuth state is in memory, so a restart means reconnecting the connectors.
+claude.ai is given `https://<host>/<toolset>` as a custom connector. It discovers the OAuth server from the 401, registers itself and runs the code flow. The only human login is Cloudflare Access on the authorize page. OAuth clients and tokens live in SQLite under `/data`, so restarts and updates do not disconnect claude.ai.
 
 ## Local development
 
