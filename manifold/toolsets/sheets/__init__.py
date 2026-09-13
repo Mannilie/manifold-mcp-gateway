@@ -241,7 +241,8 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
         noted. Empty cells are empty strings.
 
         render: formatted (default, as displayed, dates as the sheet shows them), raw
-        (unformatted numbers, dates as ISO strings) or formula (the cell's formula text).
+        (unformatted numbers, dates as ISO strings) or formula (the cell's formula text;
+        cells without a formula come back unformatted, so dates appear as serial numbers).
 
         Reads are capped at the toolset's row cap (default 1000). When truncated is true,
         next_range is the range to request next. Not for finding a row by value: use
