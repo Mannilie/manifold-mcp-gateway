@@ -442,3 +442,13 @@ The key the `unraid` toolset uses, created under Settings, Management Access, AP
 ## 2026-09-14: Upstream limitation, Unraid API 32-bit Int overflow
 
 Manny's Unraid API declares some numeric fields as GraphQL `Int` (32-bit) where the values do not fit. On the NAS the field is `vars.mdResyncSize`, which reports 7814026532 (the array's parity sync size in KiB). The current upstream schema still types the `mdResync*` fields as `Int`, so this is an unfixed upstream bug rather than a version difference. Manifold handles it at runtime: the client recognises "Int cannot represent non 32-bit signed integer value", reads the error's `path`, strips that one leaf at its selection path, retries, remembers it for the life of the runtime, and lists the omitted fields on the toolset card. Values for those fields show as null in tool results. When Unraid types the field correctly, nothing needs changing here: the overflow stops and the field comes back on the next reload.
+
+## 2026-09-14: Phase 5 complete, Phase 6 loose ends
+
+Phase 5 done from claude.ai: `system_overview` and `array_status` on the native Unraid toolset, `search_workflows` through the n8n proxy.
+
+Loose ends folded into Phase 6 (Manny):
+
+- The n8n proxy row and its credential from Phase 3 were gone after the Phase 5 deploy. Find the cause and add a test that rows survive a migration and an upgrade.
+- Proxy discovery returning a bare 502 on an upstream 401 shows a Cloudflare error page. Return a JSON error carrying the upstream status.
+- The `vars.mdResyncSize` overflow is recorded above. The Unraid Connect plugin ships the BigInt fix; if the runtime workaround ever needs retiring, that is the path.
