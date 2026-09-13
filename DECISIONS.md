@@ -117,3 +117,7 @@ Details settled while building it, cheap to change:
 - Phase 1 keeps clients and tokens in memory. Every restart logs out every connector until Phase 2 persists them, which is Phase 2's first deliverable because Watchtower restarts on every push to main.
 - Dynamic registration is rate limited globally to 30 per 10 minutes and capped at 100 stored clients, both answered with 429. Single user, one origin, so per-address limits would add nothing behind Cloudflare. "Disconnect all" in Phase 3 clears the store.
 - PKCE S256 is mandatory and `plain` is rejected. That is the SDK's default and a test now pins it.
+
+## 2026-09-13: Phase 1 complete, Phase 2 gate order
+
+Phase 1 done: Manny called `ping` on both connectors from the phone. Manny set the Phase 2 gate order as encryption, then schema, then hot reload, because the schema depends on how ciphertext is stored and hot reload depends on the schema. After the gates, the SQLite `TokenStore` ships and deploys on its own before the rest of Phase 2, so restarts stop logging out the connectors early.
