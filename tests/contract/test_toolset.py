@@ -17,6 +17,7 @@ from manifold.gateway.manifest import (
     validate_key,
 )
 from manifold.gateway.registry import discover_native_toolsets
+from manifold.gateway.schema import validate_settings, validate_settings_schema
 
 TOOLSETS = discover_native_toolsets()
 
@@ -39,8 +40,15 @@ def test_manifest_is_valid(toolset):
     assert manifest.kind == "native"
 
 
+def test_settings_schema_is_within_the_renderable_subset(toolset):
+    validate_settings_schema(toolset.MANIFEST.settings_schema)
+
+
 def test_example_settings_validate_against_schema(toolset):
     jsonschema.validate(toolset.MANIFEST.example_settings, toolset.MANIFEST.settings_schema)
+    assert (
+        validate_settings(toolset.MANIFEST.settings_schema, toolset.MANIFEST.example_settings) == []
+    )
 
 
 def test_build_returns_server_with_tools(toolset, config):
