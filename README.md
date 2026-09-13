@@ -69,6 +69,13 @@ Proxy toolsets, such as `n8n`, are rows in the config store created from the adm
 
 Create `manifold/toolsets/<name>/__init__.py` exposing `MANIFEST`, `build()` and `healthcheck()`. See `manifold/toolsets/manifold` for the shape. The contract tests in `tests/contract` pick it up automatically and it is served at `/<MANIFEST.key>` after a restart.
 
+## Backups, restore and key rotation
+
+Snapshots land in `/data/backups` daily, before every migration, before every restore and
+before a key rotation, newest 14 kept. Settings lists them for download, takes one on demand,
+and restores in two steps with a comparison against the live database. Key rotation is
+`python -m manifold rotate-key`. Step lists are in `docs/runbooks.md`.
+
 ## Deployment
 
 The image is published to `ghcr.io/mannilie/manifold` by GitHub Actions on every push to `main`. It runs as UID 99 GID 100 and keeps all state under `/data`. Port 8800 is bound to the NAS loopback only; cloudflared runs with host networking and reaches it at `localhost:8800`. It is never exposed on a LAN interface. See `deploy/unraid/manifold.xml` and SPEC.md section 11.

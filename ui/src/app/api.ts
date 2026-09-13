@@ -73,8 +73,15 @@ export interface AuditEntry {
   id: number; ts: string; toolset_key: string; tool_name: string; args_hash: string; duration_ms: number; ok: boolean; error: string | null;
   upstream_tool: string | null; actor: string | null; detail: string | null;
 }
+export interface AuditStats { rows: number; oldest_ts: string | null; last_prune: { ts: string; by_age: number; by_cap: number; rows_after: number } | null }
+export interface Snapshot { name: string; reason: string; created_at: string; size_bytes: number }
+export interface RestoreReport {
+  token: string; snapshot_created_at: string | null; schema_version: number; live_schema_version: number;
+  counts: Record<string, number>; live_counts: Record<string, number>; warnings: string[];
+}
 export interface Settings {
-  log_level: string; log_level_source: string; audit_retention_days: number; master_key: { verified: boolean; first_run_at: string | null };
+  log_level: string; log_level_source: string; audit_retention_days: number; audit_row_cap: number; audit: AuditStats;
+  master_key: { verified: boolean; first_run_at: string | null };
   base_url: string; admin_emails: string[]; version: string; schema_version: number; oauth_clients: number;
 }
 export interface SchemaProperty {

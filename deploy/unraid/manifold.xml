@@ -12,7 +12,7 @@
   <WebUI>https://mcp.mannylab.cloud</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>--label com.centurylinklabs.watchtower.enable=true -p 127.0.0.1:8800:8800</ExtraParams>
+  <ExtraParams>--label com.centurylinklabs.watchtower.enable=true -p 127.0.0.1:8800:8800 --restart=unless-stopped</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>

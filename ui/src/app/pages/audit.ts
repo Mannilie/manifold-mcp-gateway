@@ -1,11 +1,12 @@
-import { api, type AuditEntry, type ToolsetSummary } from "../api";
+import { api, type AuditEntry, type Settings, type ToolsetSummary } from "../api";
 import { clear, fmtTime, h } from "../dom";
 import { navigate, type Page } from "../router";
 
 const PAGE = 50;
 
 export const auditPage: Page = async (root, _params, query) => {
-  const toolsets = await api.get<ToolsetSummary[]>("/api/toolsets");
+  const [toolsets, settings] = await Promise.all([api.get<ToolsetSummary[]>("/api/toolsets"), api.get<Settings>("/api/settings")]);
+  const stats = settings.audit;
   const q = new URLSearchParams(query);
   q.set("limit", String(PAGE));
   const offset = Number(q.get("offset") ?? 0);
@@ -31,7 +32,9 @@ export const auditPage: Page = async (root, _params, query) => {
   root.append(
     h("h1", {}, "Audit log"),
     h("div", { class: "toolbar" }, toolset, tool, ok, since, until, h("button", { type: "button", onclick: () => apply() }, "Filter")),
-    h("p", { class: "muted" }, "Arguments are stored as a hash only. The same arguments always produce the same hash."),
+    h("p", { class: "muted" }, `${stats.rows.toLocaleString()} rows, oldest ${fmtTime(stats.oldest_ts)}, retention ${settings.audit_retention_days} days, cap ${settings.audit_row_cap.toLocaleString()}.`,
+      stats.last_prune && stats.last_prune.by_cap > 0 ? h("span", { class: "error" }, ` Last prune removed ${stats.last_prune.by_cap} rows by cap: something is calling tools faster than retention alone would allow.`) : null),
+    h("p", { class: "muted" }, "Arguments are stored as a hash only. The same arguments always produce the same hash. Rows marked admin are your own changes."),
   );
   if (entries.length === 0) root.append(h("p", { class: "muted" }, "No calls match."));
   else {

@@ -488,3 +488,12 @@ Loose ends folded into Phase 6 (Manny):
 - The key rotation command takes a snapshot first and refuses to run if the snapshot fails.
 - Live test on the real NAS as part of the Phase 6 criterion: snapshot, delete a toolset, restore, toolset is back.
 - `/data/backups` is excluded from the audit prune and from any size cap other than the 14-file limit.
+
+### Phase 6 build notes (14 Sep)
+
+- Snapshots are `/data/backups/manifold-<UTC stamp>-<reason>.db`, reasons `daily`, `manual`, `pre-migration`, `pre-restore`, `pre-rotation`, newest 14 kept across all reasons. The pre-restore copy therefore lives in the backups directory under the snapshot naming rather than as `manifold.db.pre-restore-<timestamp>` beside the database, so that there is one backup path with one retention as the gate asked. The old `manifold.db.pre-*` copies on the NAS are superseded and can be deleted once the live restore test has passed.
+- Restore validation opens the upload read-only, requires a Manifold schema no newer than the running build, and must decrypt the key check row under the current master key. The report compares row counts per table; audit rows always differ and the runbook says so.
+- Confirm restore stages the file as `manifold.db.restore` and exits the process. `apply_pending` swaps it in before the database opens on the next boot, so the shell fallback is the same mechanism: copy a snapshot to that name and start the container.
+- The rotation command proves the current key against the key check row before taking its snapshot. Without that, a database with no credentials would let a wrong key re-key the check row silently.
+- The Unraid template now carries `--restart=unless-stopped`. Neither the restart button nor restore confirm works without it; a container created from the earlier template needs it added by hand (runbook).
+- Runbooks in `docs/runbooks.md`: backups, restore, key rotation, restart policy, audit size, Unraid Connect BigInt note.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -107,14 +108,19 @@ class Database:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def migrate(self) -> int:
-        """Apply pending migrations. Returns the resulting schema version."""
+    async def migrate(self, before: Callable[[int], Awaitable[None]] | None = None) -> int:
+        """Apply pending migrations. Returns the resulting schema version. `before` runs
+        once with the current version when there is something to apply and the database
+        already holds data; the app passes the snapshot store's pre-migration snapshot."""
         current = await self.user_version()
         pending = [(v, p) for v, p in list_migrations(self._migrations_dir) if v > current]
         if not pending:
             return current
         if current > 0:
-            self._backup(current)
+            if before is not None:
+                await before(current)
+            else:
+                self._backup(current)
         for version, path in pending:
             sql = path.read_text()
             try:

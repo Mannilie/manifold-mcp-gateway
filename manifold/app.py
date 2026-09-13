@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
@@ -44,6 +45,7 @@ from manifold.store.audit import AuditRepo
 from manifold.store.credentials import CredentialsRepo
 from manifold.store.db import Database
 from manifold.store.settings import LOG_LEVEL, GatewaySettingsRepo
+from manifold.store.snapshots import SnapshotStore, apply_pending
 from manifold.store.toolsets import ToolsetsRepo
 
 log = logging.getLogger(__name__)
@@ -106,16 +108,22 @@ def create_app(
     )
     watcher = ChangeWatcher(db, registry, reload_poll_seconds)
     pruner = AuditPruner(db, audit_repo, settings_repo)
+    snapshots = SnapshotStore(db, credentials_key)
 
     async def _reload() -> None:
         await registry.reload()
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        apply_pending(settings.data_dir)
         await db.open()
         try:
             add_access_log_file(settings.data_dir / "logs")
-            schema_version = await db.migrate()
+
+            async def snapshot_before_migration(_: int) -> None:
+                await snapshots.create("pre-migration")
+
+            schema_version = await db.migrate(before=snapshot_before_migration)
             await verify_or_initialise(db, credentials_key)
             level = await settings_repo.get(LOG_LEVEL)
             if level:
@@ -126,6 +134,9 @@ def create_app(
             async with registry.running():
                 await watcher.start()
                 await pruner.start()
+                daily = asyncio.create_task(
+                    _daily_snapshots(snapshots), name="manifold-daily-snapshot"
+                )
                 try:
                     log.info(
                         "manifold started",
@@ -137,6 +148,9 @@ def create_app(
                     )
                     yield
                 finally:
+                    daily.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await daily
                     await pruner.stop()
                     await watcher.stop()
         finally:
@@ -156,6 +170,7 @@ def create_app(
     app.state.oauth = oauth
     app.state.db = db
     app.state.pruner = pruner
+    app.state.snapshots = snapshots
     app.state.upstream = upstream
     app.state.tokens = tokens
     app.state.repos = {
@@ -218,6 +233,20 @@ class _AsgiWrap:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         await self._app(scope, receive, send)
+
+
+DAILY_SNAPSHOT_SECONDS = 24 * 60 * 60
+
+
+async def _daily_snapshots(snapshots: SnapshotStore) -> None:
+    await asyncio.sleep(120)
+    while True:
+        try:
+            snapshots.discard_incoming()
+            await snapshots.create("daily")
+        except Exception as exc:
+            log.warning("daily snapshot failed", extra={"error": type(exc).__name__})
+        await asyncio.sleep(DAILY_SNAPSHOT_SECONDS)
 
 
 def _ui_app(ui_dir: Path) -> ASGIApp:
