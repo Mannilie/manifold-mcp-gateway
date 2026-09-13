@@ -157,3 +157,24 @@ Key derivation: raw master key used directly, or HKDF-SHA256 per purpose. HKDF c
 - Authorization codes live in `oauth_tokens` with kind `code`.
 - `oauth_clients` has `created_at`. `oauth_tokens` has an index on `expires_at` so expiry sweeps are cheap.
 - Pre-migration copies are kept to the last 5 (`manifold.db.pre-<version>-<timestamp>`), older ones deleted after a successful migration, so a year of deploys cannot fill appdata.
+
+## 2026-09-13: Phase 2 gate 3, hot reload versus restart on change
+
+| Option | What it is | Trade-off | Cost to change later |
+|---|---|---|---|
+| A. Restart on change | Config writes mark "restart required", Settings restart button exits the process | 20 lines, seconds of downtime, direct DB edits need `docker restart` | Low |
+| B. Hot reload on API trigger | Registry diffs desired against mounted after each API write and on `POST /api/reload` | 120 lines plus tests, direct DB edits wait for a trigger | Low |
+| C. Hot reload plus change detection | B plus a task polling `PRAGMA data_version` every few seconds | B plus 30 lines, direct DB edits take effect within seconds | Low |
+
+**Choice:** C.
+
+**Conditions (Manny):**
+
+- Diff by content hash of (settings_json, credential_id, enabled, upstream row). A reload rebuilds only toolsets that changed. Editing sheets must not restart unraid.
+- The mapping swap is atomic: build every changed runtime first, then swap the dict once. A build failure leaves the old runtime mounted if there was one, reports health down with the error, and never leaves a previously mounted key unmounted.
+- Reloads are serialised. A trigger arriving during a run is coalesced into one follow-up run, never a queue.
+- Old runtimes get a short drain window for in-flight calls before their exit stack closes.
+- The restart button stays on the Settings page as the escape hatch.
+- Tests: change one of two toolsets and the other's runtime object is the same instance; `build()` raising leaves the prior runtime mounted; two concurrent triggers produce exactly one extra run.
+
+Delivery order after the gates: SQLite `TokenStore` first, deployed alone, then the rest of Phase 2.
