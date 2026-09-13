@@ -71,7 +71,7 @@ export interface Credential {
 }
 export interface AuditEntry {
   id: number; ts: string; toolset_key: string; tool_name: string; args_hash: string; duration_ms: number; ok: boolean; error: string | null;
-  upstream_tool: string | null;
+  upstream_tool: string | null; actor: string | null; detail: string | null;
 }
 export interface Settings {
   log_level: string; log_level_source: string; audit_retention_days: number; master_key: { verified: boolean; first_run_at: string | null };

@@ -11,9 +11,7 @@ from manifold.auth.upstream import OAuthConfigError
 from manifold.store.credentials import CredentialInUse, CredentialNotFound, CredentialSummary
 
 log = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/credentials", tags=["credentials"], dependencies=[Depends(require_admin)]
-)
+router = APIRouter(prefix="/credentials", tags=["credentials"])
 
 REQUIRED_VALUES: dict[str, tuple[str, ...]] = {
     "none": (),
@@ -84,13 +82,15 @@ def _split(
     return secrets, meta
 
 
-@router.get("", response_model=list[CredentialOut])
+@router.get("", response_model=list[CredentialOut], dependencies=[Depends(require_admin)])
 async def list_credentials(request: Request):
     return [_out(s) for s in await request.app.state.repos["credentials"].list()]
 
 
 @router.post("", response_model=CredentialOut, status_code=201)
-async def create_credential(body: CredentialCreate, request: Request):
+async def create_credential(
+    body: CredentialCreate, request: Request, actor: str = Depends(require_admin)
+):
     repo = request.app.state.repos["credentials"]
     secrets, meta = _split(body.auth_kind, body.values, body)
     status = "unconnected" if body.auth_kind == "oauth2" else "ok"
@@ -100,10 +100,13 @@ async def create_credential(body: CredentialCreate, request: Request):
         if "UNIQUE" in str(exc):
             raise HTTPException(409, "a credential with that name exists") from None
         raise
+    await request.app.state.repos["audit"].record_admin(
+        actor, "credential.create", f"credential:{cid}", f"'{body.name}' ({body.auth_kind})"
+    )
     return _out(await repo.get_summary(cid))
 
 
-@router.get("/{credential_id}", response_model=CredentialOut)
+@router.get("/{credential_id}", response_model=CredentialOut, dependencies=[Depends(require_admin)])
 async def get_credential(credential_id: int, request: Request):
     try:
         return _out(await request.app.state.repos["credentials"].get_summary(credential_id))
@@ -112,7 +115,12 @@ async def get_credential(credential_id: int, request: Request):
 
 
 @router.patch("/{credential_id}", response_model=CredentialOut)
-async def patch_credential(credential_id: int, body: CredentialPatch, request: Request):
+async def patch_credential(
+    credential_id: int,
+    body: CredentialPatch,
+    request: Request,
+    actor: str = Depends(require_admin),
+):
     state = request.app.state
     repo = state.repos["credentials"]
     try:
@@ -152,15 +160,31 @@ async def patch_credential(credential_id: int, body: CredentialPatch, request: R
                 "credential scopes changed; reconnect required",
                 extra={"credential_id": credential_id},
             )
+    changed = [f for f, v in body.model_dump(exclude_none=True).items()]
+    await state.repos["audit"].record_admin(
+        actor,
+        "credential.update",
+        f"credential:{credential_id}",
+        f"'{summary.name}': {', '.join(changed)}",
+    )
     await state.registry.reload()
     return _out(await repo.get_summary(credential_id))
 
 
 @router.delete("/{credential_id}", status_code=204)
-async def delete_credential(credential_id: int, request: Request):
+async def delete_credential(
+    credential_id: int, request: Request, actor: str = Depends(require_admin)
+):
     repo = request.app.state.repos["credentials"]
     try:
+        summary = await repo.get_summary(credential_id)
         await repo.delete(credential_id)
+        await request.app.state.repos["audit"].record_admin(
+            actor,
+            "credential.delete",
+            f"credential:{credential_id}",
+            f"'{summary.name}' ({summary.auth_kind})",
+        )
     except CredentialNotFound:
         raise HTTPException(404, "credential not found") from None
     except CredentialInUse as exc:
@@ -168,10 +192,15 @@ async def delete_credential(credential_id: int, request: Request):
 
 
 @router.post("/{credential_id}/connect")
-async def connect_credential(credential_id: int, request: Request):
+async def connect_credential(
+    credential_id: int, request: Request, actor: str = Depends(require_admin)
+):
     """Start the upstream OAuth flow. The UI navigates the browser to `authorize_url`."""
     try:
         url = await request.app.state.upstream.start_connect(credential_id)
+        await request.app.state.repos["audit"].record_admin(
+            actor, "credential.connect", f"credential:{credential_id}"
+        )
     except CredentialNotFound:
         raise HTTPException(404, "credential not found") from None
     except OAuthConfigError as exc:

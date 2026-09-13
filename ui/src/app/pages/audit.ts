@@ -41,7 +41,8 @@ export const auditPage: Page = async (root, _params, query) => {
         h("td", {}, fmtTime(e.ts)), h("td", {}, e.toolset_key),
         h("td", {}, h("code", {}, e.tool_name), e.upstream_tool && e.upstream_tool !== e.tool_name ? h("span", { class: "muted" }, ` (upstream ${e.upstream_tool})`) : null),
         h("td", {}, `${e.duration_ms} ms`),
-        h("td", { class: e.ok ? "" : "error" }, e.ok ? "ok" : e.error ?? "error"), h("td", { class: "mono muted", title: e.args_hash }, e.args_hash.slice(0, 12)),
+        h("td", { class: e.ok ? "" : "error" }, e.actor ? `${e.actor}${e.detail ? ": " + e.detail : ""}` : e.ok ? "ok" : e.error ?? "error"),
+        h("td", { class: "mono muted", title: e.args_hash }, e.actor ? "admin" : e.args_hash.slice(0, 12)),
       ));
     }
     root.append(table);

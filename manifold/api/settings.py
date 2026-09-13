@@ -16,7 +16,7 @@ from manifold.store.export import export_config
 from manifold.store.settings import AUDIT_RETENTION_DAYS, LOG_LEVEL
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 async def _out(request: Request) -> SettingsOut:
@@ -38,14 +38,20 @@ async def _out(request: Request) -> SettingsOut:
     )
 
 
-@router.get("", response_model=SettingsOut)
+@router.get("", response_model=SettingsOut, dependencies=[Depends(require_admin)])
 async def get_settings(request: Request):
     return await _out(request)
 
 
 @router.patch("", response_model=SettingsOut)
-async def patch_settings(body: SettingsPatch, request: Request):
+async def patch_settings(
+    body: SettingsPatch, request: Request, actor: str = Depends(require_admin)
+):
     repo = request.app.state.repos["settings"]
+    changed = ", ".join(f"{k}={v}" for k, v in body.model_dump(exclude_none=True).items())
+    await request.app.state.repos["audit"].record_admin(
+        actor, "settings.update", "settings", changed
+    )
     if body.log_level is not None:
         await repo.set(LOG_LEVEL, body.log_level)
         configure_logging(body.log_level)
@@ -54,7 +60,7 @@ async def patch_settings(body: SettingsPatch, request: Request):
     return await _out(request)
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[Depends(require_admin)])
 async def export(request: Request):
     repos = request.app.state.repos
     text = await export_config(repos["toolsets"], repos["credentials"], repos["settings"])
@@ -66,17 +72,21 @@ async def export(request: Request):
 
 
 @router.post("/disconnect-all")
-async def disconnect_all(request: Request):
+async def disconnect_all(request: Request, actor: str = Depends(require_admin)):
     """Forget every claude.ai client and token. Each connector must re-authorise."""
     await request.app.state.oauth.store.clear()
+    await request.app.state.repos["audit"].record_admin(
+        actor, "connectors.disconnect_all", "settings"
+    )
     log.warning("all connectors disconnected by admin")
     return {"ok": True}
 
 
 @router.post("/restart")
-async def restart(request: Request):
+async def restart(request: Request, actor: str = Depends(require_admin)):
     """Exit the process. Docker's restart policy brings it back with the same config."""
     log.warning("restart requested by admin")
+    await request.app.state.repos["audit"].record_admin(actor, "gateway.restart", "settings")
 
     async def later() -> None:
         await asyncio.sleep(0.5)

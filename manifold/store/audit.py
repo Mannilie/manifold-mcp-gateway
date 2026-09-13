@@ -28,6 +28,11 @@ class AuditEntry:
     ok: bool
     error: str | None
     upstream_tool: str | None = None
+    actor: str | None = None
+    detail: str | None = None
+
+
+ADMIN_PREFIX = "admin:"
 
 
 class AuditRepo:
@@ -59,6 +64,16 @@ class AuditRepo:
             ),
         )
 
+    async def record_admin(
+        self, actor: str, action: str, target: str, detail: str | None = None
+    ) -> None:
+        """An admin API mutation: who did what to which key. Never a credential value."""
+        await self._db.conn.execute(
+            "INSERT INTO audit_log (ts, toolset_key, tool_name, args_hash, duration_ms, ok, error,"
+            " actor, detail) VALUES (?, ?, ?, ?, 0, 1, NULL, ?, ?)",
+            (utcnow(), target, ADMIN_PREFIX + action, hash_args({"target": target}), actor, detail),
+        )
+
     async def recent(
         self,
         limit: int = 50,
@@ -87,7 +102,8 @@ class AuditRepo:
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         async with self._db.conn.execute(
             "SELECT id, ts, toolset_key, tool_name, args_hash, duration_ms, ok, error,"
-            f" upstream_tool FROM audit_log{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            " upstream_tool, actor, detail"
+            f" FROM audit_log{where} ORDER BY id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ) as c:
             rows = await c.fetchall()
@@ -102,6 +118,8 @@ class AuditRepo:
                 ok=bool(r["ok"]),
                 error=r["error"],
                 upstream_tool=r["upstream_tool"],
+                actor=r["actor"],
+                detail=r["detail"],
             )
             for r in rows
         ]
@@ -109,6 +127,6 @@ class AuditRepo:
     async def last_call_at(self) -> dict[str, str]:
         """Most recent call timestamp per toolset, for the dashboard."""
         async with self._db.conn.execute(
-            "SELECT toolset_key, MAX(ts) FROM audit_log GROUP BY toolset_key"
+            "SELECT toolset_key, MAX(ts) FROM audit_log WHERE actor IS NULL GROUP BY toolset_key"
         ) as c:
             return {r[0]: r[1] for r in await c.fetchall()}

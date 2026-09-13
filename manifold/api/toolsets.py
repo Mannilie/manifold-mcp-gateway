@@ -23,7 +23,7 @@ from manifold.store.credentials import CredentialNotFound
 from manifold.store.toolsets import ProxyUpstream, ToolsetNotFound, ToolsetProtected, ToolsetRow
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/toolsets", tags=["toolsets"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/toolsets", tags=["toolsets"])
 
 
 def _checklist(base_url: str, key: str) -> CloudflareChecklist:
@@ -66,7 +66,7 @@ async def _summary(request: Request, row: ToolsetRow, cred_names: dict, last: di
     }
 
 
-@router.get("", response_model=list[ToolsetSummary])
+@router.get("", response_model=list[ToolsetSummary], dependencies=[Depends(require_admin)])
 async def list_toolsets(request: Request):
     repos = request.app.state.repos
     cred_names = {c.id: c.name for c in await repos["credentials"].list()}
@@ -83,7 +83,7 @@ async def list_toolsets(request: Request):
     ]
 
 
-@router.get("/{key}", response_model=ToolsetDetail)
+@router.get("/{key}", response_model=ToolsetDetail, dependencies=[Depends(require_admin)])
 async def get_toolset(key: str, request: Request):
     state = request.app.state
     repos = state.repos
@@ -166,7 +166,9 @@ async def get_toolset(key: str, request: Request):
 
 
 @router.patch("/{key}", response_model=ToolsetDetail)
-async def patch_toolset(key: str, patch: ToolsetPatch, request: Request):
+async def patch_toolset(
+    key: str, patch: ToolsetPatch, request: Request, actor: str = Depends(require_admin)
+):
     state = request.app.state
     repo = state.repos["toolsets"]
     try:
@@ -209,11 +211,13 @@ async def patch_toolset(key: str, patch: ToolsetPatch, request: Request):
             await repo.set_enabled(key, patch.enabled)
     except ToolsetProtected as exc:
         raise HTTPException(409, str(exc)) from None
+    changed = [f for f, v in patch.model_dump(exclude_none=True).items() if v not in (False, [])]
+    await state.repos["audit"].record_admin(actor, "toolset.update", key, ", ".join(changed))
     await state.registry.reload()
     return await get_toolset(key, request)
 
 
-@router.post("/{key}/test")
+@router.post("/{key}/test", dependencies=[Depends(require_admin)])
 async def test_toolset(key: str, request: Request):
     mounted = request.app.state.registry.mounted.get(key)
     if mounted is None:
@@ -225,7 +229,9 @@ async def test_toolset(key: str, request: Request):
 
 
 @router.post("/{key}/rename", response_model=ToolsetDetail)
-async def rename_toolset(key: str, body: ToolsetRename, request: Request):
+async def rename_toolset(
+    key: str, body: ToolsetRename, request: Request, actor: str = Depends(require_admin)
+):
     state = request.app.state
     try:
         validate_key(body.new_key)
@@ -242,10 +248,14 @@ async def rename_toolset(key: str, body: ToolsetRename, request: Request):
 
 
 @router.delete("/{key}", status_code=204)
-async def delete_toolset(key: str, request: Request):
+async def delete_toolset(key: str, request: Request, actor: str = Depends(require_admin)):
     state = request.app.state
     try:
+        row = await state.repos["toolsets"].get(key)
         await state.repos["toolsets"].delete(key)
+        await state.repos["audit"].record_admin(
+            actor, "toolset.delete", key, f"{row.kind} '{row.display_name}'"
+        )
     except ToolsetNotFound:
         raise HTTPException(404, "toolset not found") from None
     except ToolsetProtected as exc:
@@ -254,7 +264,7 @@ async def delete_toolset(key: str, request: Request):
 
 
 @router.post("", response_model=ToolsetDetail, status_code=201)
-async def create_proxy(body: ProxyCreate, request: Request):
+async def create_proxy(body: ProxyCreate, request: Request, actor: str = Depends(require_admin)):
     state = request.app.state
     try:
         validate_key(body.key)
@@ -273,6 +283,9 @@ async def create_proxy(body: ProxyCreate, request: Request):
         if "UNIQUE" in str(exc) or "PRIMARY KEY" in str(exc):
             raise HTTPException(409, "a toolset with that key exists") from None
         raise
+    await state.repos["audit"].record_admin(
+        actor, "toolset.create", body.key, f"proxy '{body.display_name}' -> {body.upstream_url}"
+    )
     return await get_toolset(body.key, request)
 
 

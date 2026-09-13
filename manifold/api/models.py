@@ -124,6 +124,8 @@ class AuditOut(BaseModel):
     ok: bool
     error: str | None
     upstream_tool: str | None = None
+    actor: str | None = None
+    detail: str | None = None
 
 
 class SettingsOut(BaseModel):
