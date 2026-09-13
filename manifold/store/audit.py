@@ -124,6 +124,56 @@ class AuditRepo:
             for r in rows
         ]
 
+    async def stats(self) -> dict:
+        async with self._db.conn.execute("SELECT COUNT(*), MIN(ts) FROM audit_log") as c:
+            count, oldest = await c.fetchone()
+        async with self._db.conn.execute(
+            "SELECT ts, by_age, by_cap, rows_after FROM audit_prune_log ORDER BY id DESC LIMIT 1"
+        ) as c:
+            row = await c.fetchone()
+        last = (
+            None
+            if row is None
+            else {"ts": row[0], "by_age": row[1], "by_cap": row[2], "rows_after": row[3]}
+        )
+        return {"rows": int(count or 0), "oldest_ts": oldest, "last_prune": last}
+
+    async def prune_batch(self, older_than: str, cap: int, batch: int) -> tuple[int, int]:
+        """Delete up to `batch` rows: first by age, then by count cap, oldest first.
+        Returns (deleted_by_age, deleted_by_cap). Small batches keep the write lock short."""
+        cursor = await self._db.conn.execute(
+            "DELETE FROM audit_log WHERE id IN"
+            " (SELECT id FROM audit_log WHERE ts < ? ORDER BY id LIMIT ?)",
+            (older_than, batch),
+        )
+        by_age = cursor.rowcount
+        remaining = batch - by_age
+        by_cap = 0
+        if remaining > 0:
+            async with self._db.conn.execute("SELECT COUNT(*) FROM audit_log") as c:
+                count = int((await c.fetchone())[0])
+            excess = count - cap
+            if excess > 0:
+                cursor = await self._db.conn.execute(
+                    "DELETE FROM audit_log WHERE id IN"
+                    " (SELECT id FROM audit_log ORDER BY id LIMIT ?)",
+                    (min(excess, remaining),),
+                )
+                by_cap = cursor.rowcount
+        return by_age, by_cap
+
+    async def record_prune(self, by_age: int, by_cap: int) -> None:
+        async with self._db.conn.execute("SELECT COUNT(*) FROM audit_log") as c:
+            rows_after = int((await c.fetchone())[0])
+        await self._db.conn.execute(
+            "INSERT INTO audit_prune_log (ts, by_age, by_cap, rows_after) VALUES (?, ?, ?, ?)",
+            (utcnow(), by_age, by_cap, rows_after),
+        )
+        await self._db.conn.execute(
+            "DELETE FROM audit_prune_log WHERE id NOT IN"
+            " (SELECT id FROM audit_prune_log ORDER BY id DESC LIMIT 30)"
+        )
+
     async def last_call_at(self) -> dict[str, str]:
         """Most recent call timestamp per toolset, for the dashboard."""
         async with self._db.conn.execute(

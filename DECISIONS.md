@@ -449,7 +449,7 @@ Phase 5 done from claude.ai: `system_overview` and `array_status` on the native 
 
 Loose ends folded into Phase 6 (Manny):
 
-- The n8n proxy row and its credential from Phase 3 were gone after the Phase 5 deploy. Find the cause and add a test that rows survive a migration and an upgrade.
+- Correction (Manny, 14 Sep): the n8n proxy and its credential were never created in Phase 3; that step was not completed and the message saying it was done was wrong. The credential ids on the NAS (1 Google, 2 Manifold bot, 3 Unraid, 4 n8n MCP) are consistent with no deletion ever happening. Phase 3's proxy criterion was actually met on 13 September during Phase 5, when the n8n proxy was created and discovered. The hardening built while investigating stays: admin mutations in the audit log with actor and detail, typed confirmation on delete, an access log under `/data/logs` that survives container replacement, and the migration survival test.
 - Proxy discovery returning a bare 502 on an upstream 401 shows a Cloudflare error page. Return a JSON error carrying the upstream status.
 - The `vars.mdResyncSize` overflow is recorded above. The Unraid Connect plugin ships the BigInt fix; if the runtime workaround ever needs retiring, that is the path.
 

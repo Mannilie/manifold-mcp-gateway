@@ -9,8 +9,9 @@ from manifold.store.db import Database
 
 LOG_LEVEL = "log_level"
 AUDIT_RETENTION_DAYS = "audit_retention_days"
+AUDIT_ROW_CAP = "audit_row_cap"
 
-DEFAULTS: dict[str, Any] = {AUDIT_RETENTION_DAYS: 90}
+DEFAULTS: dict[str, Any] = {AUDIT_RETENTION_DAYS: 90, AUDIT_ROW_CAP: 200_000}
 
 
 class GatewaySettingsRepo:

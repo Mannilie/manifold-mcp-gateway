@@ -70,6 +70,26 @@ class Database:
         await conn.execute("PRAGMA foreign_keys = ON")
         await conn.execute("PRAGMA busy_timeout = 5000")
         self._conn = conn
+        await self._enable_incremental_vacuum()
+
+    async def _enable_incremental_vacuum(self) -> None:
+        """Incremental vacuum needs auto_vacuum=INCREMENTAL, which SQLite can only switch
+        with one full VACUUM. Do that once, and only while the file is small enough for it
+        to be instant; a large file keeps reusing its free pages instead."""
+        async with self.conn.execute("PRAGMA auto_vacuum") as c:
+            mode = int((await c.fetchone())[0])
+        if mode == 2:
+            return
+        size = self.path.stat().st_size if self.path.exists() else 0
+        if size > 64 * 1024 * 1024:
+            log.warning(
+                "auto_vacuum not switched to incremental: database too large for a one-off VACUUM",
+                extra={"bytes": size},
+            )
+            return
+        await self.conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        await self.conn.execute("VACUUM")
+        log.info("auto_vacuum switched to incremental", extra={"bytes": size})
 
     async def close(self) -> None:
         if self._conn is not None:

@@ -13,7 +13,7 @@ from manifold.api.deps import require_admin
 from manifold.api.models import SettingsOut, SettingsPatch
 from manifold.config.logging import configure_logging
 from manifold.store.export import export_config
-from manifold.store.settings import AUDIT_RETENTION_DAYS, LOG_LEVEL
+from manifold.store.settings import AUDIT_RETENTION_DAYS, AUDIT_ROW_CAP, LOG_LEVEL
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -29,6 +29,8 @@ async def _out(request: Request) -> SettingsOut:
         log_level=db_level or state.settings.log_level,
         log_level_source="database" if db_level else "env",
         audit_retention_days=await repo.get(AUDIT_RETENTION_DAYS),
+        audit_row_cap=await repo.get(AUDIT_ROW_CAP),
+        audit=await state.repos["audit"].stats(),
         master_key={"verified": row is not None, "first_run_at": row[0] if row else None},
         base_url=state.settings.base_url,
         admin_emails=sorted(state.settings.admin_emails),
@@ -57,7 +59,17 @@ async def patch_settings(
         configure_logging(body.log_level)
     if body.audit_retention_days is not None:
         await repo.set(AUDIT_RETENTION_DAYS, body.audit_retention_days)
+    if body.audit_row_cap is not None:
+        await repo.set(AUDIT_ROW_CAP, body.audit_row_cap)
     return await _out(request)
+
+
+@router.post("/prune-audit")
+async def prune_audit(request: Request, actor: str = Depends(require_admin)):
+    """Run the audit prune now rather than waiting for the daily task."""
+    result = await request.app.state.pruner.run_once()
+    await request.app.state.repos["audit"].record_admin(actor, "audit.prune", "settings")
+    return result
 
 
 @router.get("/export", dependencies=[Depends(require_admin)])

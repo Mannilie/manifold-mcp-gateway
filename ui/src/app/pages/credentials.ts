@@ -1,5 +1,5 @@
 import { api, describe, type Credential, type ToolsetSummary } from "../api";
-import { clear, confirmDialog, fmtTime, h } from "../dom";
+import { clear, confirmTyped, fmtTime, h } from "../dom";
 import { navigate, setDirty, type Page } from "../router";
 import { listEditor } from "../schemaForm";
 
@@ -162,7 +162,7 @@ export const credentialPage: Page = async (root, params, query) => {
   root.append(h("div", { class: "danger-zone" }, h("h2", { style: "margin-top:0" }, "Danger zone"),
     users.length ? h("p", {}, "In use by ", users.join(", "), ". Detach it from those toolsets before deleting.") : h("p", {}, "Not used by any toolset."),
     h("button", { type: "button", class: "danger", disabled: users.length > 0, onclick: async () => {
-      if (!confirmDialog(`Delete credential ${c.name}? This cannot be undone.`)) return;
+      if (!confirmTyped(`Delete credential ${c.name}? This cannot be undone.`, c.name)) return;
       try { await api.del(`/api/credentials/${id}`); navigate("/credentials"); } catch (err) { say(describe(err), "error"); }
     } }, "Delete credential")));
 };

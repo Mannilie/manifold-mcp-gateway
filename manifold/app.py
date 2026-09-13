@@ -29,12 +29,13 @@ from manifold.auth.routes import (
 from manifold.auth.sqlite_store import SqliteTokenStore
 from manifold.auth.upstream import ConnectError, TokenManager, UpstreamOAuth
 from manifold.config.cache import cache_control
-from manifold.config.logging import configure_logging
+from manifold.config.logging import add_access_log_file, configure_logging
 from manifold.config.settings import Settings
 from manifold.crypto.keycheck import verify_or_initialise
 from manifold.crypto.keys import INFO_CREDENTIALS, derive_key
 from manifold.gateway.audit import AuditMiddleware
 from manifold.gateway.dispatcher import ToolsetDispatcher
+from manifold.gateway.prune import AuditPruner
 from manifold.gateway.registry import Registry, discover_native_toolsets
 from manifold.gateway.source import DbToolsetSource
 from manifold.gateway.toolfilter import ToolFilterMiddleware
@@ -104,6 +105,7 @@ def create_app(
         ],
     )
     watcher = ChangeWatcher(db, registry, reload_poll_seconds)
+    pruner = AuditPruner(db, audit_repo, settings_repo)
 
     async def _reload() -> None:
         await registry.reload()
@@ -112,6 +114,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await db.open()
         try:
+            add_access_log_file(settings.data_dir / "logs")
             schema_version = await db.migrate()
             await verify_or_initialise(db, credentials_key)
             level = await settings_repo.get(LOG_LEVEL)
@@ -122,6 +125,7 @@ def create_app(
                 log.info("native toolsets registered", extra={"toolsets": added})
             async with registry.running():
                 await watcher.start()
+                await pruner.start()
                 try:
                     log.info(
                         "manifold started",
@@ -133,6 +137,7 @@ def create_app(
                     )
                     yield
                 finally:
+                    await pruner.stop()
                     await watcher.stop()
         finally:
             await db.close()
@@ -150,6 +155,7 @@ def create_app(
     app.state.registry = registry
     app.state.oauth = oauth
     app.state.db = db
+    app.state.pruner = pruner
     app.state.upstream = upstream
     app.state.tokens = tokens
     app.state.repos = {

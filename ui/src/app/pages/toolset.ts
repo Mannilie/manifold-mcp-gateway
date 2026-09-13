@@ -1,5 +1,5 @@
 import { api, describe, type Credential, type ToolsetDetail } from "../api";
-import { clear, confirmDialog, copyButton, fmtTime, h } from "../dom";
+import { clear, confirmDialog, confirmTyped, copyButton, fmtTime, h } from "../dom";
 import { navigate, setDirty, type Page } from "../router";
 import { listEditor, schemaForm } from "../schemaForm";
 
@@ -124,12 +124,12 @@ export const toolsetPage: Page = async (root, params) => {
       h("p", {}, "Renaming changes the endpoint URL. The claude.ai connector for this toolset stops working until you add a new connector with the new URL and a new Access bypass rule."),
       h("div", { class: "row" }, newKey, h("button", { type: "button", class: "danger", onclick: async () => {
         if (newKey.value === key) return;
-        if (!confirmDialog(`Rename ${key} to ${newKey.value}? The current connector will break.`)) return;
+        if (!confirmTyped(`Rename ${key} to ${newKey.value}? The current connector will break.`, key)) return;
         try { await api.post(`/api/toolsets/${key}/rename`, { new_key: newKey.value }); navigate(`/toolsets/${newKey.value}`); }
         catch (err) { say(describe(err), "error"); }
       } }, "Rename")),
       h("p", { style: "margin-top:1rem" }, h("button", { type: "button", class: "danger", onclick: async () => {
-        if (!confirmDialog(`Delete ${key}? This removes its configuration. It cannot be undone.`)) return;
+        if (!confirmTyped(`Delete toolset ${key}? This removes its configuration. It cannot be undone.`, key)) return;
         try { await api.del(`/api/toolsets/${key}`); navigate("/"); } catch (err) { say(describe(err), "error"); }
       } }, "Delete toolset")),
     ));

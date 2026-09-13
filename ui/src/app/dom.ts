@@ -54,3 +54,9 @@ export function copyButton(text: string, label = "Copy"): HTMLButtonElement {
 export function confirmDialog(message: string): boolean {
   return window.confirm(message);
 }
+
+/** Destructive actions: the user must type the exact name back. */
+export function confirmTyped(message: string, expected: string): boolean {
+  const typed = window.prompt(`${message}\n\nType ${expected} to confirm.`);
+  return typed !== null && typed.trim() === expected;
+}

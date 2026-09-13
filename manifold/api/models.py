@@ -132,6 +132,8 @@ class SettingsOut(BaseModel):
     log_level: str
     log_level_source: Literal["env", "database"]
     audit_retention_days: int
+    audit_row_cap: int
+    audit: dict[str, Any]
     master_key: dict[str, Any]
     base_url: str
     admin_emails: list[str]
@@ -142,4 +144,5 @@ class SettingsOut(BaseModel):
 
 class SettingsPatch(BaseModel):
     log_level: Literal["debug", "info", "warning", "error"] | None = None
-    audit_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    audit_retention_days: int | None = Field(default=None, ge=1, le=365)
+    audit_row_cap: int | None = Field(default=None, ge=10_000, le=1_000_000)
