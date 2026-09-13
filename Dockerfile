@@ -33,6 +33,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER 99:100
 VOLUME ["/data"]
 EXPOSE 8800
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=2 \
     CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8800/healthz', timeout=3).status == 200 else 1)"
 CMD ["python", "-m", "manifold"]

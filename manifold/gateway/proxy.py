@@ -30,6 +30,7 @@ from manifold.gateway.upstream_auth import auth_headers
 log = logging.getLogger(__name__)
 
 CALL_BUDGET_SECONDS = 25.0
+STOP_TIMEOUT_SECONDS = 2.0
 CONNECT_TIMEOUT_SECONDS = 10.0
 BACKOFF_BASE_SECONDS = 1.0
 BACKOFF_MAX_SECONDS = 30.0
@@ -114,12 +115,28 @@ class ProxyConnection:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._ready.wait(), wait)
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float | None = None) -> None:
+        """Close the session. An upstream that will not let go is abandoned after
+        `timeout` seconds so a restart never waits on it."""
         self._stop.set()
-        if self._task is not None:
-            with contextlib.suppress(BaseException):
-                await self._task
-            self._task = None
+        task, self._task = self._task, None
+        if task is None:
+            return
+        budget = STOP_TIMEOUT_SECONDS if timeout is None else timeout
+        try:
+            await asyncio.wait_for(asyncio.shield(task), budget)
+            return
+        except TimeoutError:
+            pass
+        except BaseException:
+            return
+        task.cancel()
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(asyncio.shield(task), budget)
+        log.warning(
+            "proxy session did not close in time, abandoned",
+            extra={"upstream": self.display_name},
+        )
 
     @property
     def connected(self) -> bool:

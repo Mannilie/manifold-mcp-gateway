@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
-import signal
 
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import PlainTextResponse
@@ -99,12 +96,8 @@ async def restart(request: Request, actor: str = Depends(require_admin)):
     """Exit the process. Docker's restart policy brings it back with the same config."""
     log.warning("restart requested by admin")
     await request.app.state.repos["audit"].record_admin(actor, "gateway.restart", "settings")
-
-    async def later() -> None:
-        await asyncio.sleep(0.5)
-        os.kill(os.getpid(), signal.SIGTERM)
-
-    asyncio.create_task(later())  # noqa: RUF006 - fire and forget by design
+    if not getattr(request.app.state, "no_restart", False):
+        request.app.state.shutdown.exit_process()
     return {"ok": True, "message": "restarting"}
 
 

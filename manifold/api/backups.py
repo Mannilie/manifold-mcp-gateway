@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
-import signal
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
@@ -72,11 +69,6 @@ async def confirm_restore(request: Request, body: dict, actor: str = Depends(req
     await request.app.state.repos["audit"].record_admin(
         actor, "backup.restore", "settings", f"pre-restore snapshot {before.name}"
     )
-    if request.app.state.settings.data_dir and not request.app.state.__dict__.get("no_restart"):
-
-        async def later() -> None:
-            await asyncio.sleep(0.5)
-            os.kill(os.getpid(), signal.SIGTERM)
-
-        asyncio.create_task(later())  # noqa: RUF006 - fire and forget by design
+    if not getattr(request.app.state, "no_restart", False):
+        request.app.state.shutdown.exit_process()
     return {"ok": True, "pre_restore": before.name, "message": "restarting to apply the restore"}

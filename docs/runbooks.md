@@ -87,12 +87,27 @@ wrong, if the new key equals the current one, or if the snapshot fails.
 If step 4 fails with a key mismatch, the environment value is wrong. Fix it and apply again;
 nothing else is needed because the rotation already committed.
 
-## Restart policy
+## Restart policy and shutdown
 
 The restart button and the restore confirm both exit the process and rely on Docker
 starting it again. The Unraid template carries `--restart=unless-stopped` in Extra
 Parameters. A container created from an older template needs that added by hand, or a
 restart leaves it stopped until started from the Docker page.
+
+Shutdown is bounded, whether it starts from the UI or from Docker's stop signal:
+
+| Stage | Limit |
+|---|---|
+| uvicorn waits for open connections | 5 seconds, then they are dropped |
+| each teardown step (proxy sessions, watcher, prune task, database) | 5 seconds each, proxy sessions 2 |
+| watchdog thread forces the process out | 15 seconds after shutdown began, exit code 3 |
+
+`/healthz` answers 503 from the moment shutdown begins, and the container healthcheck
+runs every 10 seconds with two retries, so Docker reports unhealthy within about 20
+seconds if the process ever lingers. A log line `shutdown did not finish in time,
+forcing exit` means the watchdog fired; the restore or restart still completes because
+the staged file is applied on the next boot, but tell me which step timed out from the
+lines above it.
 
 ## Audit log size
 

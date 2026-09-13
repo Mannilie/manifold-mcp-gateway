@@ -34,10 +34,12 @@ from manifold.config.logging import add_access_log_file, configure_logging
 from manifold.config.settings import Settings
 from manifold.crypto.keycheck import verify_or_initialise
 from manifold.crypto.keys import INFO_CREDENTIALS, derive_key
+from manifold.gateway import shutdown as shutdown_mod
 from manifold.gateway.audit import AuditMiddleware
 from manifold.gateway.dispatcher import ToolsetDispatcher
 from manifold.gateway.prune import AuditPruner
 from manifold.gateway.registry import Registry, discover_native_toolsets
+from manifold.gateway.shutdown import ShutdownController, bounded
 from manifold.gateway.source import DbToolsetSource
 from manifold.gateway.toolfilter import ToolFilterMiddleware
 from manifold.gateway.watch import POLL_SECONDS, ChangeWatcher
@@ -148,13 +150,18 @@ def create_app(
                     )
                     yield
                 finally:
+                    shutdown.begin()
                     daily.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await daily
-                    await pruner.stop()
-                    await watcher.stop()
+                    await bounded("pruner stop", pruner.stop())
+                    await bounded("watcher stop", watcher.stop())
         finally:
-            await db.close()
+            await bounded("database close", db.close())
+            shutdown.cancel_watchdog()
+
+    shutdown = ShutdownController()
+    shutdown_mod.current = shutdown
 
     app = FastAPI(
         title="Manifold",
@@ -171,6 +178,7 @@ def create_app(
     app.state.db = db
     app.state.pruner = pruner
     app.state.snapshots = snapshots
+    app.state.shutdown = shutdown
     app.state.upstream = upstream
     app.state.tokens = tokens
     app.state.repos = {
@@ -181,8 +189,10 @@ def create_app(
     }
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, object]:
-        return {"status": "ok", "version": __version__, "toolsets": registry.keys}
+    async def healthz() -> JSONResponse:
+        if shutdown.shutting_down:
+            return JSONResponse({"status": "shutting_down"}, status_code=503)
+        return JSONResponse({"status": "ok", "version": __version__, "toolsets": registry.keys})
 
     @app.get(PROTECTED_RESOURCE_PREFIX + "/{key}")
     async def protected_resource(key: str) -> JSONResponse:

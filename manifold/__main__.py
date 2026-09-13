@@ -12,6 +12,7 @@ import uvicorn
 
 from manifold.config.settings import Settings, SettingsError
 from manifold.crypto.keycheck import MasterKeyError
+from manifold.gateway import shutdown
 
 
 def rotate_key(new_key_b64: str) -> int:
@@ -50,6 +51,30 @@ def rotate_key(new_key_b64: str) -> int:
     return asyncio.run(run())
 
 
+class Server(uvicorn.Server):
+    """uvicorn's server with shutdown hooked to the app's controller, so a SIGTERM from
+    Docker arms the watchdog and flips /healthz exactly as the restart button does."""
+
+    def handle_exit(self, sig: int, frame: object) -> None:
+        if shutdown.current is not None:
+            shutdown.current.begin()
+        super().handle_exit(sig, frame)
+
+
+def serve() -> None:
+    config = uvicorn.Config(
+        "manifold.app:create_app",
+        factory=True,
+        host="0.0.0.0",
+        port=8800,
+        log_config=None,  # logging is configured by create_app
+        proxy_headers=True,
+        forwarded_allow_ips="*",  # cloudflared is the only thing that can reach us
+        timeout_graceful_shutdown=shutdown.SHUTDOWN_TIMEOUT_SECONDS,
+    )
+    Server(config).run()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="manifold")
     sub = parser.add_subparsers(dest="command")
@@ -63,15 +88,7 @@ def main() -> int:
             print(f"manifold: {exc}", file=sys.stderr)
             return 2
     try:
-        uvicorn.run(
-            "manifold.app:create_app",
-            factory=True,
-            host="0.0.0.0",
-            port=8800,
-            log_config=None,  # logging is configured by create_app
-            proxy_headers=True,
-            forwarded_allow_ips="*",  # cloudflared is the only thing that can reach us
-        )
+        serve()
     except (SettingsError, MasterKeyError) as exc:
         print(f"manifold: {exc}", file=sys.stderr)
         return 2

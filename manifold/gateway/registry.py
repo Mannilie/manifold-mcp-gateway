@@ -44,6 +44,7 @@ from manifold.gateway.manifest import (
     ToolsetConfig,
     ToolsetManifest,
 )
+from manifold.gateway.shutdown import bounded
 
 log = logging.getLogger(__name__)
 
@@ -482,4 +483,4 @@ class Registry:
             runtimes = list(self.runtimes())
             self.routes.clear()
             self.mounted = {}
-            await asyncio.gather(*(rt.stop(0) for rt in runtimes))
+            await bounded("registry stop", asyncio.gather(*(rt.stop(0) for rt in runtimes)))
