@@ -172,7 +172,7 @@ async def test_healthcheck_names_a_renamed_field(rig):
 async def test_healthcheck_never_runs_the_smart_query(rig):
     await unraid_module.healthcheck(config(), creds())
     # every call was either the health query or introspection: none touched `disks {`
-    assert rig.calls == 1 + len(unraid_module.q.FIELDS_USED)
+    assert rig.calls == 1 + len(unraid_module.q.OPTIONAL_QUERIES) + len(unraid_module.q.FIELDS_USED)
 
 
 class TlsDead(httpx2.AsyncBaseTransport):
@@ -274,8 +274,24 @@ async def test_request_shape_matches_curl(monkeypatch, caplog):
 
 
 async def test_forbidden_health_names_the_roots(rig):
-    rig.forbidden.update({"metrics", "upsDevices"})
+    rig.forbidden.update({"metrics", "vars"})
     result = await unraid_module.healthcheck(config(), creds())
     assert result.status == "degraded"
-    assert "cannot read: metrics, upsDevices" in result.detail
+    assert "cannot read: metrics, vars" in result.detail
     assert "array" not in result.detail.split("cannot read:")[1].split(".")[0]
+
+
+async def test_vms_and_ups_off_are_notes_not_failures(rig):
+    rig.unavailable.update({"vms", "upsDevices"})
+    result = await unraid_module.healthcheck(config(), creds())
+    assert result.status == "ok"
+    assert "vms unavailable" in result.detail and "upsDevices unavailable" in result.detail
+    server = unraid_module.build(config(), creds())
+    vms = await call(server, "list_vms")
+    assert vms["vms"] == [] and "VM service is not available" in vms["note"]
+    ups = await call(server, "ups_status")
+    assert ups["devices"] == [] and "not available" in ups["note"]
+    rig.unavailable.clear()
+    rig.forbidden.add("vms")
+    with pytest.raises(ToolError, match="not allowed"):
+        await call(server, "list_vms")

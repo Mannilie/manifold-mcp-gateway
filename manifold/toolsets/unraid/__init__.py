@@ -78,6 +78,12 @@ def _disk(d: dict) -> dict:
     }
 
 
+def _short(exc: Exception) -> str:
+    """The provider's own words, without our 'Unraid refused X:' prefix."""
+    text = str(exc)
+    return text.split(": ", 1)[1] if ": " in text else text
+
+
 def _confirm(confirm: bool, what: str) -> None:
     if not confirm:
         raise ToolError(
@@ -253,7 +259,12 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
 
         Returns a list of UPS devices, or an empty list with a note when none is configured.
         """
-        data = await nas.query(q.UPS_STATUS, context="read UPS status")
+        try:
+            data = await nas.query(q.UPS_STATUS, context="read UPS status")
+        except ToolError as exc:
+            if "not allowed" in str(exc) or "unreachable" in str(exc):
+                raise
+            return {"devices": [], "note": f"UPS monitoring is not available: {_short(exc)}"}
         devices = data.get("upsDevices") or []
         return {
             "devices": [
@@ -300,7 +311,12 @@ def build(config: ToolsetConfig, credentials: Credentials) -> MCPServer:
 
         Returns vms as a list of name and state. Use vm_control to change one.
         """
-        data = await nas.query(q.LIST_VMS, context="list VMs")
+        try:
+            data = await nas.query(q.LIST_VMS, context="list VMs")
+        except ToolError as exc:
+            if "not allowed" in str(exc) or "unreachable" in str(exc):
+                raise
+            return {"vms": [], "note": f"the VM service is not available: {_short(exc)}"}
         domains = (data.get("vms") or {}).get("domains") or []
         return {"vms": [{"name": d.get("name"), "state": d.get("state")} for d in domains]}
 
@@ -427,8 +443,8 @@ async def _forbidden_roots(nas: _Unraid) -> list[str]:
         except UnraidError as exc:
             if exc.reason == "forbidden":
                 refused.append(root)
-            else:
-                refused.append(f"{root} ({exc.reason or 'error'})")
+            elif root not in q.OPTIONAL_QUERIES:
+                refused.append(f"{root} ({exc})")
     return refused
 
 
@@ -458,6 +474,16 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
                 "Access, API Keys. Every other root answered.",
             )
         return HealthResult(status="degraded", detail=str(exc))
+    notes: list[str] = []
+    for root, document in q.OPTIONAL_QUERIES.items():
+        try:
+            await nas.client.query(document, context=f"read {root}")
+        except UnraidSchemaError as exc:
+            return HealthResult(status="degraded", detail=str(exc))
+        except UnraidError as exc:
+            if exc.reason == "forbidden":
+                return HealthResult(status="degraded", detail=str(exc))
+            notes.append(f"{root} unavailable: {_short(exc)}")
     missing: list[str] = []
     for type_name, fields in q.FIELDS_USED.items():
         try:
@@ -484,4 +510,4 @@ async def healthcheck(config: ToolsetConfig, credentials: Credentials) -> Health
             + ", ".join(missing)
             + "; this toolset needs updating for this Unraid version",
         )
-    return HealthResult(status="ok")
+    return HealthResult(status="ok", detail="; ".join(notes))

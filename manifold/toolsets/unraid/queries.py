@@ -127,19 +127,24 @@ query ManifoldHealth {{
     boot {{ {ARRAY_DISK_FIELDS} }}
   }}
   vars {{ shareMoverActive shareMoverSchedule shareMoverLogging mdResync mdResyncPos mdResyncSize mdState }}
-  vms {{ domains {{ id name state }} }}
   shares {{ id name comment free used size cache include exclude allocator splitLevel floor luksStatus }}
   notifications {{
     overview {{ unread {{ info warning alert total }} archive {{ info warning alert total }} }}
     list(filter: {{ type: UNREAD, offset: 0, limit: 1 }}) {{ id title subject description importance timestamp type }}
   }}
-  upsDevices {{
-    id name model status
-    battery {{ chargeLevel estimatedRuntime health }}
-    power {{ inputVoltage outputVoltage loadPercentage nominalPower currentPower }}
-  }}
 }}
 """
+
+# Roots that legitimately fail on a box without the feature: VM service off, no UPS
+# daemon. Checked separately so the healthcheck reports them as notes, not failures.
+OPTIONAL_QUERIES = {
+    "vms": "query { vms { domains { id name state } } }",
+    "upsDevices": (
+        "query { upsDevices { id name model status"
+        " battery { chargeLevel estimatedRuntime health }"
+        " power { inputVoltage outputVoltage loadPercentage nominalPower currentPower } } }"
+    ),
+}
 
 # One tiny query per root, used to name the roots a key cannot read when the combined
 # health query is refused with a bare "Forbidden resource".

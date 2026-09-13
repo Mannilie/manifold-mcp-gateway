@@ -63,6 +63,7 @@ class FakeUnraid:
     def __init__(self) -> None:
         self.renamed: set[str] = set()
         self.forbidden: set[str] = set()
+        self.unavailable: set[str] = set()
         self.mutations: list[tuple[str, dict]] = []
         self.calls = 0
         self.introspection = True
@@ -154,6 +155,10 @@ class FakeUnraid:
                                 }
                             ]
                         }
+                    )
+                if root in self.unavailable:
+                    return JSONResponse(
+                        {"errors": [{"message": f"{root} service is not enabled on this server"}]}
                     )
                 data[root] = getattr(self, f"_{root}")(variables)
         return JSONResponse({"data": data})
