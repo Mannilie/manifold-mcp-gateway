@@ -126,9 +126,7 @@ def create_app(
         # Reads the live registry so Phase 2 hot reload needs no route changes.
         if key not in registry.routes:
             raise HTTPException(status_code=404)
-        body = protected_resource_metadata(
-            settings.base_url, key, registry.get(key).display_name
-        )
+        body = protected_resource_metadata(settings.base_url, key, registry.get(key).display_name)
         return JSONResponse(body, headers={"cache-control": "no-store"})
 
     for route in build_oauth_routes(oauth, settings.base_url, settings.admin_emails):
