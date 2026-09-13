@@ -452,3 +452,20 @@ Loose ends folded into Phase 6 (Manny):
 - The n8n proxy row and its credential from Phase 3 were gone after the Phase 5 deploy. Find the cause and add a test that rows survive a migration and an upgrade.
 - Proxy discovery returning a bare 502 on an upstream 401 shows a Cloudflare error page. Return a JSON error carrying the upstream status.
 - The `vars.mdResyncSize` overflow is recorded above. The Unraid Connect plugin ships the BigInt fix; if the runtime workaround ever needs retiring, that is the path.
+
+## 2026-09-14: Phase 6 gate 1, audit log retention and rollover
+
+| Option | What it is | Trade-off |
+|---|---|---|
+| A. Time-based prune in process | Daily task deletes rows older than the retention setting, incremental vacuum | Size bounded only by call rate times days |
+| B. Time and row-count caps | A plus a hard row cap, oldest first, both on the Settings page | Bounded whatever happens; the dashboard says when the cap fired |
+| C. Rollover to monthly files | Old rows written to `/data/audit/YYYY-MM.jsonl` before deletion | Keeps history forever; more files for the backup runbook |
+
+**Choice:** B.
+
+**Conditions (Manny):**
+
+- Prune runs in its own task in small batches with a short sleep between them, so a large first prune never holds the write lock long enough to stall a tool call.
+- Incremental vacuum only, never a full VACUUM.
+- The dashboard shows the row count, the oldest row, and a "pruned N rows by cap" notice when the cap fires, so abuse can be told from ageing.
+- Retention validated to 1 to 365 days, cap to 10,000 to 1,000,000 rows.
