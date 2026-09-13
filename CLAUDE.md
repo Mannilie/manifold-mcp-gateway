@@ -23,7 +23,7 @@ Work strictly in the phases defined in SPEC.md section 14. Do not start a phase 
 
 ## Stack
 
-- Python 3.12, FastAPI, FastMCP, SQLite via `aiosqlite`, `httpx`
+- Python 3.12, FastAPI, official `mcp` SDK 2.x (`MCPServer`, formerly FastMCP), SQLite via `aiosqlite`, `httpx2` (the SDK's HTTP client; do not add `httpx`)
 - Astro for the admin UI, static build, TypeScript, no UI framework unless a gate decides otherwise
 - `uv` for Python dependency management, `pnpm` for the UI
 - `pytest` with `pytest-asyncio`, `ruff` for lint and format

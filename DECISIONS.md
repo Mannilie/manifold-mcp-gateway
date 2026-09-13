@@ -43,3 +43,33 @@ Recorded for the log, accepted by Manny without a gate because each is cheap to 
 - amd64 only. Unraid is the only target.
 - GitHub Actions on push to `main`: run tests, then build and push `latest` and the git SHA tag to GHCR. Tests gate the push.
 - Python pinned to 3.12 via `uv` and `.python-version`. The system interpreter is never used.
+
+## 2026-09-13: Phase 1 gate, ASGI mounting strategy
+
+Measured on `mcp` 2.2.0 and Starlette 1.6 with two servers, POST `initialize`, redirects disabled.
+
+| Option | What it is | POST `/<key>` | Trade-off | Cost to change later |
+|---|---|---|---|---|
+| A. Starlette `Mount` of the SDK sub-app | `streamable_http_app(streamable_http_path="/")` mounted at `/<key>` | 307 to `/<key>/`, or 404 with redirects off | Least code but cannot serve `/<key>` without a redirect. Sub-app lifespans do not run under `Mount`. | Low |
+| B. Exact `Route` per toolset to the SDK transport app | `Route("/<key>")` and `Route("/<key>/healthz")` in the Starlette route table | 200 | Works today. Phase 2 hot reload must mutate Starlette's route list at runtime. | Low to medium |
+| C. Custom dispatcher on first path segment | One ASGI callable mounted last, registry dict lookup, exact `/<key>` to the transport app, `/<key>/healthz` to health, unknown keys fall through to the UI | 200 | About 40 lines Manifold owns and tests. Hot reload is a dict swap. | Low |
+
+**Choice:** C, custom dispatcher.
+
+**Reason (Manny):** meets the no-redirect requirement and does not fight Starlette's route table when Phase 2 adds hot reload.
+
+**Conditions (Manny):**
+
+- The contract test covers: exact `/<key>` POST 200, `/<key>/` 200, `/<key>/healthz` 200, `/<key>/anything-else` 404, reserved keys 404, unknown key falls through to the UI, and no 3xx response anywhere.
+- The dispatcher is one module with no Starlette imports beyond the ASGI types, so the Phase 2 hot reload test can exercise it in isolation.
+- The SDK's DNS-rebinding protection is off for every toolset transport, because Cloudflare terminates the public hostname and the Host header is not `localhost`. This is safe only because port 8800 is never published on the Unraid host (Phase 0 amendment above). If 8800 is ever published, rebinding protection must be turned on with `mcp.mannylab.cloud` as the allowed host. The two decisions are linked.
+
+## 2026-09-13: Phase 1 non-gated transport picks
+
+Cheap to flip, recorded so they are not re-derived.
+
+- Streamable HTTP in stateless mode. A gateway that will hot-reload toolsets in Phase 2 must not hold per-session server state that a reload would invalidate. Cost: no server-initiated notifications over a GET stream. Not needed in v1.
+- JSON responses rather than SSE for POST replies. Plain JSON is simpler through Cloudflare and on a phone. Flip `json_response` if a toolset ever needs streaming progress.
+- Native toolset package directories use underscores where the key has a hyphen (`toolsets/ping_b` serves key `ping-b`). The key comes from `MANIFEST.key`, never from the directory name.
+- `httpx2` is the only HTTP client library. `mcp` 2.x depends on `httpx2` (the httpx 2 line, published under that name) and its client takes an `httpx2.AsyncClient`. Adding `httpx` as well would ship two copies of the same library. CLAUDE.md updated to match.
+- Toolset endpoints answer GET with 405. In stateless mode there is no server-initiated stream to offer, but the SDK would still hold a GET open as an idle SSE stream. The MCP spec allows 405, and it stops a stray GET tying up a connection.
