@@ -123,6 +123,7 @@ class AuditOut(BaseModel):
     duration_ms: int
     ok: bool
     error: str | None
+    upstream_tool: str | None = None
 
 
 class SettingsOut(BaseModel):

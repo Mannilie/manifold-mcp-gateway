@@ -105,6 +105,20 @@ async def get_toolset(key: str, request: Request):
                     enabled=t.name not in row.disabled_tools,
                 )
             )
+    elif row.upstream is not None:
+        from manifold.gateway.proxy import SnapshotTool, apply_lists
+
+        snapshot = [SnapshotTool.from_json(t) for t in row.upstream.tools]
+        exported = {t.name for t in apply_lists(snapshot, row.upstream.allow, row.upstream.deny)}
+        prefix = row.upstream.prefix or ""
+        for t in snapshot:
+            tools.append(
+                ToolOut(
+                    name=prefix + t.name,
+                    description=f"Via {row.display_name}: {t.description}",
+                    enabled=t.name in exported and (prefix + t.name) not in row.disabled_tools,
+                )
+            )
     elif module is not None:
         # Not mounted: build a throwaway server with example settings just to list tools.
         from manifold.gateway.manifest import Credentials, ToolsetConfig

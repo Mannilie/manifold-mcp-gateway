@@ -25,6 +25,7 @@ class ProxyUpstream:
     prefix: str | None
     allow: tuple[str, ...]
     deny: tuple[str, ...]
+    tools: tuple[dict, ...] = ()  # snapshot of upstream tools at the last build
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ class ToolsetRow:
 _SELECT = (
     "SELECT t.key, t.display_name, t.kind, t.enabled, t.credential_id, t.settings_json,"
     " t.created_at, t.updated_at, t.disabled_tools_json,"
-    " p.upstream_url, p.prefix, p.allow_json, p.deny_json,"
+    " p.upstream_url, p.prefix, p.allow_json, p.deny_json, p.tools_json,"
     " c.updated_at AS credential_updated_at"
     " FROM toolsets t"
     " LEFT JOIN proxy_upstreams p ON p.toolset_key = t.key"
@@ -82,6 +83,7 @@ def _row(r) -> ToolsetRow:
             prefix=r["prefix"],
             allow=tuple(json.loads(r["allow_json"])),
             deny=tuple(json.loads(r["deny_json"])),
+            tools=tuple(json.loads(r["tools_json"])),
         )
     return ToolsetRow(
         key=r["key"],
@@ -169,7 +171,24 @@ class ToolsetsRepo:
                 key,
             ),
         )
-        await self._update(key, "updated_at = updated_at", ())
+        await self._db.conn.execute(
+            "UPDATE toolsets SET updated_at = ? WHERE key = ?", (utcnow(), key)
+        )
+
+    async def sync_snapshot(self, key: str, tools: list[dict], new_deny: list[str]) -> None:
+        """Store the upstream tool snapshot and deny tools that are new since the last one.
+        Does not bump updated_at: a re-snapshot is not a config change."""
+        row = await self.get(key)
+        if row.upstream is None:
+            raise ValueError(f"{key} is not a proxy toolset")
+        live_names = {t["name"] for t in tools}
+        deny = sorted((set(row.upstream.deny) | set(new_deny)) & live_names)
+        allow = sorted(set(row.upstream.allow) & live_names)
+        await self._db.conn.execute(
+            "UPDATE proxy_upstreams SET tools_json = ?, deny_json = ?, allow_json = ?"
+            " WHERE toolset_key = ?",
+            (json.dumps(tools), json.dumps(deny), json.dumps(allow), key),
+        )
 
     async def rename(self, old_key: str, new_key: str) -> None:
         """Change a toolset's key, which changes its endpoint URL. The UI warns first."""
@@ -200,8 +219,8 @@ class ToolsetsRepo:
             if row.upstream is not None:
                 await conn.execute(
                     "INSERT INTO proxy_upstreams (toolset_key, upstream_url, prefix, allow_json,"
-                    " deny_json) SELECT ?, upstream_url, prefix, allow_json, deny_json"
-                    " FROM proxy_upstreams WHERE toolset_key = ?",
+                    " deny_json, tools_json) SELECT ?, upstream_url, prefix, allow_json, deny_json,"
+                    " tools_json FROM proxy_upstreams WHERE toolset_key = ?",
                     (new_key, old_key),
                 )
             await conn.execute("DELETE FROM toolsets WHERE key = ?", (old_key,))

@@ -27,6 +27,7 @@ class AuditEntry:
     duration_ms: int
     ok: bool
     error: str | None
+    upstream_tool: str | None = None
 
 
 class AuditRepo:
@@ -41,10 +42,11 @@ class AuditRepo:
         duration_ms: int,
         ok: bool,
         error: str | None,
+        upstream_tool: str | None = None,
     ) -> None:
         await self._db.conn.execute(
-            "INSERT INTO audit_log (ts, toolset_key, tool_name, args_hash, duration_ms, ok, error)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_log (ts, toolset_key, tool_name, args_hash, duration_ms, ok, error,"
+            " upstream_tool) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 utcnow(),
                 toolset_key,
@@ -53,6 +55,7 @@ class AuditRepo:
                 duration_ms,
                 1 if ok else 0,
                 None if error is None else error[:ERROR_MAX_CHARS],
+                upstream_tool,
             ),
         )
 
@@ -83,8 +86,8 @@ class AuditRepo:
             params.append(until)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         async with self._db.conn.execute(
-            "SELECT id, ts, toolset_key, tool_name, args_hash, duration_ms, ok, error"
-            f" FROM audit_log{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            "SELECT id, ts, toolset_key, tool_name, args_hash, duration_ms, ok, error,"
+            f" upstream_tool FROM audit_log{where} ORDER BY id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ) as c:
             rows = await c.fetchall()
@@ -98,6 +101,7 @@ class AuditRepo:
                 duration_ms=r["duration_ms"],
                 ok=bool(r["ok"]),
                 error=r["error"],
+                upstream_tool=r["upstream_tool"],
             )
             for r in rows
         ]

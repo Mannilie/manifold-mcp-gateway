@@ -108,3 +108,6 @@ class HealthResult(BaseModel):
 
     status: HealthStatus
     detail: str = ""
+    # A health probe that finds the runtime stale (for example a proxy whose upstream tool
+    # list drifted) sets this so the next reload rebuilds the toolset without a config change.
+    needs_rebuild: bool = False

@@ -106,8 +106,13 @@ class DesiredToolset:
     display_name: str
     version: str
     content_hash: str
-    build: Callable[[], Awaitable[tuple[MCPServer, Callable[[], Awaitable[HealthResult]]]]]
+    build: Callable[[], Awaitable[tuple[Any, Callable[[], Awaitable[HealthResult]]]]]
     disabled_tools: frozenset[str] = frozenset()
+    tool_aliases: dict[str, str] | None = None  # proxied name -> upstream name, for the audit log
+    on_stop: Callable[[], Awaitable[None]] | None = None
+    # A build that changes its own row (a proxy re-snapshot adjusts the deny list) must
+    # report the hash of the row as it stands afterwards, or the next edit looks unchanged.
+    rehash: Callable[[], Awaitable[str]] | None = None
 
 
 class ToolsetSource(Protocol):
@@ -155,10 +160,12 @@ class ToolsetRuntime:
     key: str
     display_name: str
     version: str
-    server: MCPServer
+    server: Any  # MCPServer or anything exposing _lowlevel_server, middleware, list_tools()
     session_manager: StreamableHTTPSessionManager
     healthcheck: Callable[[], Awaitable[HealthResult]]
     build_error: str | None = None
+    on_stop: Callable[[], Awaitable[None]] | None = None
+    needs_rebuild: bool = False
     inflight: int = 0
     _task: asyncio.Task | None = field(default=None, init=False)
     _stop_event: asyncio.Event = field(default_factory=asyncio.Event, init=False)
@@ -196,6 +203,9 @@ class ToolsetRuntime:
             with contextlib.suppress(BaseException):
                 await self._task
             self._task = None
+        if self.on_stop is not None:
+            with contextlib.suppress(Exception):
+                await self.on_stop()
 
     def route(self, protect: Protector | None) -> ToolsetRoute:
         app: ASGIApp = self._counting(
@@ -233,6 +243,8 @@ class ToolsetRuntime:
                 "healthcheck raised", extra={"toolset": self.key, "error": type(exc).__name__}
             )
             result = HealthResult(status="down", detail=f"healthcheck raised {type(exc).__name__}")
+        if result.needs_rebuild:
+            self.needs_rebuild = True
         body = self._body(result.status, result.detail)
         self._health_cache = (now, body)
         return body
@@ -277,7 +289,7 @@ async def build_runtime(
     spec: DesiredToolset, middleware: list[Any] | None = None
 ) -> ToolsetRuntime:
     server, healthcheck = await spec.build()
-    if not isinstance(server, MCPServer):
+    if not (isinstance(server, MCPServer) or hasattr(server, "_lowlevel_server")):
         raise TypeError(f"{spec.key}.build() must return an MCPServer")
     for mw in middleware or ():
         server.middleware.append(mw)
@@ -294,6 +306,7 @@ async def build_runtime(
         server=server,
         session_manager=session_manager,
         healthcheck=healthcheck,
+        on_stop=spec.on_stop,
     )
 
 
@@ -385,6 +398,7 @@ class Registry:
                 current is not None
                 and current.runtime is not None
                 and current.error is None
+                and not current.runtime.needs_rebuild
                 and current.content_hash == spec.content_hash
             ):
                 new_mounted[spec.key] = current
@@ -419,11 +433,12 @@ class Registry:
                         error=error,
                     )
                 continue
+            content_hash = await spec.rehash() if spec.rehash is not None else spec.content_hash
             new_mounted[spec.key] = Mounted(
                 key=spec.key,
                 display_name=spec.display_name,
                 version=spec.version,
-                content_hash=spec.content_hash,
+                content_hash=content_hash,
                 runtime=runtime,
                 route=runtime.route(self._protect),
             )

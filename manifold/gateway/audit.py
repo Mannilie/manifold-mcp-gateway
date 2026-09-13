@@ -15,9 +15,12 @@ log = logging.getLogger(__name__)
 
 
 class AuditMiddleware:
-    def __init__(self, toolset_key: str, audit: AuditRepo) -> None:
+    def __init__(
+        self, toolset_key: str, audit: AuditRepo, aliases: dict[str, str] | None = None
+    ) -> None:
         self._key = toolset_key
         self._audit = audit
+        self._aliases = aliases if aliases is not None else {}  # shared, filled by build()
 
     async def __call__(
         self, ctx: ServerRequestContext[Any, Any], call_next: CallNext
@@ -45,7 +48,15 @@ class AuditMiddleware:
         finally:
             duration_ms = int((time.perf_counter() - started) * 1000)
             try:
-                await self._audit.record(self._key, tool_name, args_hash, duration_ms, ok, error)
+                await self._audit.record(
+                    self._key,
+                    tool_name,
+                    args_hash,
+                    duration_ms,
+                    ok,
+                    error,
+                    upstream_tool=self._aliases.get(tool_name),
+                )
             except Exception as exc:
                 log.warning("audit write failed", extra={"error": type(exc).__name__})
 

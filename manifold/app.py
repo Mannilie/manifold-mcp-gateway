@@ -98,7 +98,7 @@ def create_app(
         protect=BearerProtector(oauth, settings.base_url),
         middleware_for=lambda spec: [
             ToolFilterMiddleware(spec.disabled_tools),
-            AuditMiddleware(spec.key, audit_repo),
+            AuditMiddleware(spec.key, audit_repo, spec.tool_aliases),
         ],
     )
     watcher = ChangeWatcher(db, registry, reload_poll_seconds)
