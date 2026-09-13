@@ -107,6 +107,7 @@ class DesiredToolset:
     version: str
     content_hash: str
     build: Callable[[], Awaitable[tuple[MCPServer, Callable[[], Awaitable[HealthResult]]]]]
+    disabled_tools: frozenset[str] = frozenset()
 
 
 class ToolsetSource(Protocol):
@@ -319,7 +320,7 @@ class ReloadReport:
     unchanged: tuple[str, ...]
 
 
-MiddlewareFactory = Callable[[str], list[Any]]
+MiddlewareFactory = Callable[[DesiredToolset], list[Any]]
 
 
 class Registry:
@@ -334,7 +335,7 @@ class Registry:
     ) -> None:
         self._source = source
         self._protect = protect
-        self._middleware_for = middleware_for or (lambda key: [])
+        self._middleware_for = middleware_for or (lambda spec: [])
         self._drain = drain_seconds
         self.routes: dict[str, ToolsetRoute] = {}
         self.mounted: dict[str, Mounted] = {}
@@ -390,7 +391,7 @@ class Registry:
                 unchanged.append(spec.key)
                 continue
             try:
-                runtime = await build_runtime(spec, self._middleware_for(spec.key))
+                runtime = await build_runtime(spec, self._middleware_for(spec))
                 await runtime.start()
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"

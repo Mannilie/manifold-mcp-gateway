@@ -16,6 +16,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from manifold import __version__
+from manifold.api.router import api
 from manifold.auth.access import AccessGate
 from manifold.auth.provider import ManifoldOAuthProvider
 from manifold.auth.routes import (
@@ -26,6 +27,7 @@ from manifold.auth.routes import (
 )
 from manifold.auth.sqlite_store import SqliteTokenStore
 from manifold.auth.upstream import ConnectError, TokenManager, UpstreamOAuth
+from manifold.config.cache import cache_control
 from manifold.config.logging import configure_logging
 from manifold.config.settings import Settings
 from manifold.crypto.keycheck import verify_or_initialise
@@ -34,6 +36,7 @@ from manifold.gateway.audit import AuditMiddleware
 from manifold.gateway.dispatcher import ToolsetDispatcher
 from manifold.gateway.registry import Registry, discover_native_toolsets
 from manifold.gateway.source import DbToolsetSource
+from manifold.gateway.toolfilter import ToolFilterMiddleware
 from manifold.gateway.watch import POLL_SECONDS, ChangeWatcher
 from manifold.store.audit import AuditRepo
 from manifold.store.credentials import CredentialsRepo
@@ -80,7 +83,10 @@ def create_app(
     registry = Registry(
         DbToolsetSource(toolsets_repo, credentials_repo, modules, tokens),
         protect=BearerProtector(oauth, settings.base_url),
-        middleware_for=lambda key: [AuditMiddleware(key, audit_repo)],
+        middleware_for=lambda spec: [
+            ToolFilterMiddleware(spec.disabled_tools),
+            AuditMiddleware(spec.key, audit_repo),
+        ],
     )
     watcher = ChangeWatcher(db, registry, reload_poll_seconds)
 
@@ -125,6 +131,7 @@ def create_app(
         openapi_url=None,
     )
     app.state.settings = settings
+    app.state.modules = modules
     app.state.registry = registry
     app.state.oauth = oauth
     app.state.db = db
@@ -172,16 +179,52 @@ def create_app(
         )
     )
 
+    app.include_router(api)
+
     # Everything not matched above goes through the dispatcher. Unknown keys fall through
     # to the UI. Mounted last so FastAPI's own routes win and nothing is ever redirected.
     app.mount("/", ToolsetDispatcher(registry.routes, fallback=_ui_app()))
+    # Outermost: cache headers on every response, including the MCP endpoints.
+    app.add_middleware(_AsgiWrap, wrap=cache_control)
     return app
+
+
+class _AsgiWrap:
+    """Adapter so a plain ASGI wrapper can be registered via add_middleware."""
+
+    def __init__(self, app: ASGIApp, wrap) -> None:
+        self._app = wrap(app)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self._app(scope, receive, send)
 
 
 def _ui_app() -> ASGIApp:
     if (UI_DIST / "index.html").is_file():
-        return StaticFiles(directory=UI_DIST, html=True)
+        return _spa(StaticFiles(directory=UI_DIST, html=True))
     return _placeholder_ui
+
+
+def _spa(static: StaticFiles) -> ASGIApp:
+    """Serve hashed assets from the build, and index.html for anything else so client-side
+    routes survive a refresh. Unknown paths only reach here after the dispatcher has ruled
+    out toolset keys and reserved paths."""
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await static(scope, receive, send)
+            return
+        path = scope["path"]
+        if (
+            path.startswith("/_astro/")
+            or path.startswith("/assets/")
+            or "." in path.rsplit("/", 1)[-1]
+        ):
+            await static(scope, receive, send)
+            return
+        await static(dict(scope, path="/index.html"), receive, send)
+
+    return app
 
 
 async def _placeholder_ui(scope: Scope, receive: Receive, send: Send) -> None:

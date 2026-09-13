@@ -84,4 +84,5 @@ class DbToolsetSource:
             version=module.MANIFEST.version,
             content_hash=row.content_hash(),
             build=build,
+            disabled_tools=frozenset(row.disabled_tools),
         )

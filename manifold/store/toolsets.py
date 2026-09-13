@@ -39,6 +39,7 @@ class ToolsetRow:
     updated_at: str
     upstream: ProxyUpstream | None
     credential_updated_at: str | None
+    disabled_tools: tuple[str, ...] = ()
 
     def content_hash(self) -> str:
         """Changes only when something that affects the built runtime changes
@@ -49,6 +50,7 @@ class ToolsetRow:
             "credential_id": self.credential_id,
             "credential_updated_at": self.credential_updated_at,
             "enabled": self.enabled,
+            "disabled_tools": sorted(self.disabled_tools),
             "upstream": None
             if self.upstream is None
             else [
@@ -63,7 +65,8 @@ class ToolsetRow:
 
 _SELECT = (
     "SELECT t.key, t.display_name, t.kind, t.enabled, t.credential_id, t.settings_json,"
-    " t.created_at, t.updated_at, p.upstream_url, p.prefix, p.allow_json, p.deny_json,"
+    " t.created_at, t.updated_at, t.disabled_tools_json,"
+    " p.upstream_url, p.prefix, p.allow_json, p.deny_json,"
     " c.updated_at AS credential_updated_at"
     " FROM toolsets t"
     " LEFT JOIN proxy_upstreams p ON p.toolset_key = t.key"
@@ -91,6 +94,7 @@ def _row(r) -> ToolsetRow:
         updated_at=r["updated_at"],
         upstream=upstream,
         credential_updated_at=r["credential_updated_at"],
+        disabled_tools=tuple(json.loads(r["disabled_tools_json"])),
     )
 
 
@@ -146,6 +150,65 @@ class ToolsetsRepo:
 
     async def set_display_name(self, key: str, display_name: str) -> None:
         await self._update(key, "display_name = ?", (display_name,))
+
+    async def set_disabled_tools(self, key: str, names: Iterable[str]) -> None:
+        await self._update(key, "disabled_tools_json = ?", (json.dumps(sorted(set(names))),))
+
+    async def update_upstream(self, key: str, upstream: ProxyUpstream) -> None:
+        row = await self.get(key)
+        if row.kind != "proxy":
+            raise ValueError(f"{key} is not a proxy toolset")
+        await self._db.conn.execute(
+            "UPDATE proxy_upstreams SET upstream_url = ?, prefix = ?, allow_json = ?, deny_json = ?"
+            " WHERE toolset_key = ?",
+            (
+                upstream.upstream_url,
+                upstream.prefix,
+                json.dumps(list(upstream.allow)),
+                json.dumps(list(upstream.deny)),
+                key,
+            ),
+        )
+        await self._update(key, "updated_at = updated_at", ())
+
+    async def rename(self, old_key: str, new_key: str) -> None:
+        """Change a toolset's key, which changes its endpoint URL. The UI warns first."""
+        if old_key == "manifold":
+            raise ToolsetProtected("manifold cannot be renamed")
+        validate_key(new_key)
+        row = await self.get(old_key)
+        conn = self._db.conn
+        await conn.execute("BEGIN")
+        try:
+            now = utcnow()
+            await conn.execute(
+                "INSERT INTO toolsets (key, display_name, kind, enabled, credential_id,"
+                " settings_json, disabled_tools_json, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    new_key,
+                    row.display_name,
+                    row.kind,
+                    1 if row.enabled else 0,
+                    row.credential_id,
+                    json.dumps(row.settings),
+                    json.dumps(list(row.disabled_tools)),
+                    row.created_at,
+                    now,
+                ),
+            )
+            if row.upstream is not None:
+                await conn.execute(
+                    "INSERT INTO proxy_upstreams (toolset_key, upstream_url, prefix, allow_json,"
+                    " deny_json) SELECT ?, upstream_url, prefix, allow_json, deny_json"
+                    " FROM proxy_upstreams WHERE toolset_key = ?",
+                    (new_key, old_key),
+                )
+            await conn.execute("DELETE FROM toolsets WHERE key = ?", (old_key,))
+            await conn.execute("COMMIT")
+        except Exception:
+            await conn.execute("ROLLBACK")
+            raise
 
     async def create_proxy(
         self,
