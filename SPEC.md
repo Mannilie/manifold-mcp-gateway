@@ -40,15 +40,19 @@ Base domain: `mcp.mannylab.cloud`, via Cloudflare Tunnel.
 
 Toolset keys are lowercase, `[a-z0-9-]+`, and are permanent once a connector is registered. Renaming a key changes the endpoint URL and breaks the connector. The UI must warn on rename.
 
-The MCP endpoint is at `/<toolset>` with no `/mcp` suffix. FastMCP's default streamable path must be overridden to `/` when mounting.
+Reserved keys, rejected by the UI and the API: `api`, `healthz`, `oauth`, `assets`, `_astro`, `static`. They collide with paths the gateway already serves.
+
+The MCP endpoint is at `/<toolset>` with no `/mcp` suffix. FastMCP's default streamable path must be overridden to `/` when mounting. A POST to `/<toolset>` must be handled directly, never redirected to `/<toolset>/`.
+
+The origin path is what Manifold serves. It is not what gets pasted into claude.ai. claude.ai is given a Cloudflare MCP Server Portal URL per toolset (section 11), so each toolset has an optional `portal_url` setting. When set, the dashboard copy button shows the portal URL; otherwise it shows the origin URL. Origin paths never change because of `portal_url`.
 
 ## 5. Architecture
 
 ```
 claude.ai connector "Manifold: Sheets"
         |
-        v  (OAuth via Cloudflare Access)
-Cloudflare Tunnel -> cloudflared -> manifold:8800
+        v  (Cloudflare MCP Server Portal, Access Managed OAuth)
+Cloudflare Tunnel -> cloudflared -> manifold:8800 (Docker network only, never published on the host)
         |
         +-- /            Astro admin UI (static build served by FastAPI)
         +-- /api         FastAPI admin API
@@ -56,7 +60,7 @@ Cloudflare Tunnel -> cloudflared -> manifold:8800
         +-- /unraid      FastMCP sub-app (proxy -> unraid-mcp:6970)
         +-- /n8n         FastMCP sub-app (proxy -> n8n:5678)
         |
-        +-- SQLite (config, credentials, audit)  /mnt/user/appdata/manifold/
+        +-- SQLite (config, credentials, audit)  /data (host: /mnt/user/appdata/manifold)
 ```
 
 Process model: single ASGI app (FastAPI) with FastMCP server instances mounted per enabled toolset. Toolset registry rebuilt on config change without a full process restart where possible; full restart acceptable in v1 if hot-mount proves fragile (decision gate).
@@ -73,6 +77,7 @@ class ToolsetManifest:
     kind: Literal["native", "proxy"]
     supported_auth: list[AuthKind]   # see section 7
     settings_schema: JSONSchema      # rendered as a form in the UI
+    example_settings: dict           # valid against settings_schema, used by the contract test
     version: str
 ```
 
@@ -88,7 +93,9 @@ async def healthcheck(config, credentials) -> HealthResult
 
 Proxy toolsets are not code. They are rows in the config store with: key, display name, upstream URL, upstream auth (kind + credential ref), optional tool prefix, allow list, deny list.
 
-Contract test: every native toolset must pass `tests/contract/test_toolset.py`, which checks manifest validity, that `build()` succeeds with example settings, that every tool has a description, and that `healthcheck()` returns within 5 seconds.
+Contract test: every native toolset must pass `tests/contract/test_toolset.py`, which checks manifest validity, that `example_settings` validates against `settings_schema`, that `build()` succeeds with `example_settings`, that every tool has a description, and that `healthcheck()` returns within 5 seconds.
+
+A native toolset discovered on disk but not yet in the config store is registered disabled. `manifold` is the only exception: it is always enabled and cannot be disabled or deleted.
 
 ## 7. Credentials and auth kinds
 
@@ -111,9 +118,10 @@ OAuth2 provider presets in v1: Google, Microsoft, generic (manual auth/token URL
 
 ## 8. Config store
 
-SQLite at `/mnt/user/appdata/manifold/manifold.db`. Tables (indicative):
+SQLite at `$MANIFOLD_DATA_DIR/manifold.db`, which is `/data/manifold.db` inside the container. Tables (indicative):
 
-- `toolsets`: key, display_name, kind, enabled, settings_json, created_at, updated_at
+- `toolsets`: key, display_name, kind, enabled, portal_url, settings_json, created_at, updated_at
+- `gateway_settings`: key, value_json (log level, audit retention days, and other runtime settings from the Settings page)
 - `credentials`: toolset_key, auth_kind, ciphertext, nonce, updated_at
 - `proxy_upstreams`: toolset_key, upstream_url, prefix, allow_json, deny_json
 - `audit_log`: id, ts, toolset_key, tool_name, args_hash, duration_ms, ok, error
@@ -135,7 +143,9 @@ Pages:
 4. **Audit log**: paginated, filterable by toolset, tool, ok/error, time range.
 5. **Settings**: master key status, export config, log level, audit retention days, restart button.
 
-The UI calls `/api/*` only. `/api` is protected by the same Cloudflare Access app as `/`. Manifold additionally checks the `Cf-Access-Authenticated-User-Email` header against an allow list in env (`MANIFOLD_ADMIN_EMAILS`) as defence in depth, so a misconfigured Access policy does not expose the admin API.
+Log level: `MANIFOLD_LOG_LEVEL` is the boot default. Once the config store is loaded, the value in `gateway_settings` overrides it if present.
+
+The UI calls `/api/*` only. `/api` is protected by the same Cloudflare Access app as `/`. Manifold additionally checks the `Cf-Access-Authenticated-User-Email` header against an allow list in env (`MANIFOLD_ADMIN_EMAILS`) as defence in depth, so a misconfigured Access policy does not expose the admin API. The same header check applies to every `/<toolset>` MCP endpoint from Phase 3 onwards. Only `/healthz` and `/<toolset>/healthz` are exempt.
 
 ## 10. Initial toolsets
 
@@ -167,12 +177,14 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 
 ## 11. Deployment
 
-- Image: `ghcr.io/mannilie/manifold`, multi-stage Dockerfile (Node build stage for Astro, Python runtime). Runs as 99:100.
+- Image: `ghcr.io/mannilie/manifold`, multi-stage Dockerfile (Node build stage for Astro, Python runtime), amd64 only. UID 99 and GID 100 are baked into the image. There is no root entrypoint and no privilege drop, so `PUID` and `PGID` are not supported.
 - CI: GitHub Actions on push to `main` builds, runs tests, pushes `latest` and the git SHA tag.
-- Unraid: Community Applications-style template XML in `deploy/unraid/manifold.xml`. Env vars: `MANIFOLD_MASTER_KEY`, `MANIFOLD_ADMIN_EMAILS`, `MANIFOLD_BASE_URL`, `MANIFOLD_LOG_LEVEL`, `PUID=99`, `PGID=100`. Volume: `/mnt/user/appdata/manifold:/data`.
+- Unraid: Community Applications-style template XML in `deploy/unraid/manifold.xml`. Env vars: `MANIFOLD_MASTER_KEY`, `MANIFOLD_ADMIN_EMAILS`, `MANIFOLD_BASE_URL`, `MANIFOLD_LOG_LEVEL`, `MANIFOLD_DATA_DIR` (default `/data`). Volume: `/mnt/user/appdata/manifold:/data`. Port 8800 is never published on the host. The container joins the same Docker network as cloudflared, which reaches it as `http://manifold:8800`.
 - Watchtower: scoped label so only Manifold updates from this pipeline.
-- Cloudflare: Tunnel route `mcp.mannylab.cloud -> http://manifold:8800`. Access apps: one for `/` and `/api/*` (Manny's email), one per toolset path (Manny's email, for the claude.ai OAuth flow). `/healthz` and `/<toolset>/healthz` bypassed.
-- Local dev: `docker compose up` with a dev master key and SQLite in `./data`.
+- Cloudflare Tunnel: route `mcp.mannylab.cloud -> http://manifold:8800`.
+- Cloudflare Access, admin: one self-hosted Access app covering `/` and `/api/*`, policy allows Manny's email. `/healthz` and `/<toolset>/healthz` get bypass policies.
+- Cloudflare Access, claude.ai: one Cloudflare MCP Server Portal per toolset, pointing at `https://mcp.mannylab.cloud/<toolset>`, with Access Managed OAuth and a policy allowing Manny's email. claude.ai is given the portal URL only. No client ID or secret is entered anywhere. This is the pattern House Hunt already uses. Manifold does not implement OAuth for clients and does not serve `/.well-known/oauth-*` metadata.
+- Local dev: `docker compose up` with a dev master key and SQLite in `./data`. Outside Docker, set `MANIFOLD_DATA_DIR` to a writable directory.
 
 ## 12. Observability
 
@@ -183,7 +195,8 @@ Gateway self-management from inside Claude: `list_toolsets`, `toolset_health`, `
 ## 13. Security
 
 - No credential is ever logged, returned by the API in plaintext, or included in an export.
-- Admin API rejects requests missing a valid Cloudflare Access email header even if Access is misconfigured.
+- Admin API and toolset endpoints reject requests missing a valid Cloudflare Access email header even if Access is misconfigured.
+- Port 8800 is reachable only on the Docker network, so the header check is not the sole barrier against LAN access.
 - OAuth `state` parameter is single-use and expires in 10 minutes.
 - Proxy toolsets never forward Manifold's own headers to upstreams. Upstream auth is set explicitly from stored credentials.
 - Rate limit per toolset, configurable, default 60 calls per minute.
